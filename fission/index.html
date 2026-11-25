@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fission Reactor · Physics Sandbox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/console.css">
+<style>
+/* fission-specific: Cherenkov blue is the hero colour; everything else inherits the console look */
+:root{--cher:#4fb6ff;--fuel:#ffb15a}
+.brand a{color:var(--mute);text-decoration:none;font-size:13px;margin-right:6px}
+.brand a:hover{color:var(--ink)}
+.btn.scram{background:var(--crit);border-color:var(--crit);color:#fff;font-weight:700;letter-spacing:.04em}
+.btn.scram:hover{background:#ff6b6b}
+.tabs{display:flex;gap:6px;align-items:center}
+.vbar{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line);background:var(--p1);flex-wrap:wrap}
+.vbar .seg button{height:32px}
+#viewFig{flex:none;height:clamp(440px,64vh,760px);min-height:0}
+.center .ctr{flex:1 1 auto;display:flex;flex-direction:column;border-top:1px solid var(--line);border-right:0}
+.center .ctr .fig{flex:1 1 auto;min-height:300px}
+.center{min-height:0}
+.main.wide{grid-template-columns:minmax(0,1fr)}
+.main.wide .col.l,.main.wide .col.r{border:0;border-top:1px solid var(--line)}
+.main.wide .center{order:-1}
+.main.wide #viewFig{height:min(80vh,860px)}
+.main.wide .col.l,.main.wide .col.r{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:0 28px}
+.main.wide .col>h2{grid-column:1/-1}
+.tip{position:absolute;pointer-events:none;background:rgba(17,21,26,.96);border:1px solid var(--line2);border-radius:8px;padding:7px 10px;font-size:12.5px;max-width:260px;display:none;z-index:5}
+.tip b{display:block;font-size:13px;margin-bottom:2px}
+.tip span{color:var(--mute)}
+select{width:100%;height:34px;background:var(--p2);color:var(--ink);border:1px solid var(--line2);border-radius:8px;padding:0 8px;font:inherit;font-size:13px}
+select:focus-visible{outline:2px solid var(--ice);outline-offset:2px}
+.fld{padding:5px 0 7px}
+.fld label{display:block;font-size:13px;color:var(--mute);margin-bottom:4px}
+.presets{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px;margin-bottom:6px}
+.presets button{height:30px;border-radius:6px;border:1px solid var(--line2);background:var(--p2);color:var(--mute);cursor:pointer;font:500 12px var(--mono);padding:0}
+.presets button[aria-pressed=true]{color:var(--ink);border-color:var(--cher);background:color-mix(in srgb,var(--cher) 16%,var(--p2))}
+.lab{display:grid;grid-template-columns:auto auto;gap:3px 10px;font-size:12.5px;margin:8px 0 6px;background:var(--p2);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.lab dt{color:var(--mute)}
+.lab dd{margin:0;text-align:right;font-family:var(--mono);white-space:nowrap}
+.lab .good{color:var(--good)}.lab .bad{color:var(--crit)}.lab .warn{color:var(--warn)}
+.lab .sep{grid-column:1/-1;border-top:1px solid var(--line);margin:3px 0}
+.btnrow{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.btnrow .btn{flex:1 1 auto}
+.scen{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.scen .btn{height:32px;font-size:12.5px;padding:0 8px;white-space:normal;line-height:1.1}
+.rb{display:grid;grid-template-columns:minmax(0,1fr) 92px 58px;gap:5px 8px;align-items:center;font-size:12.5px}
+.rb .rd{font-family:var(--mono);text-align:right;white-space:nowrap}
+.rb .zb{height:9px;background:var(--line2);border-radius:2px;position:relative}
+.rb .zb i{position:absolute;top:0;bottom:0;border-radius:2px}
+.rb .zb:after{content:"";position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:var(--dim)}
+.ff{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:10px}
+.ff>div{background:var(--p2);border:1px solid var(--line);border-radius:7px;padding:5px 8px}
+.ff .k{font-size:12px;color:var(--mute)}
+.ff .v{font-family:var(--mono);font-size:14px}
+.dmgOv{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:rgba(30,10,10,.92);border:1px solid var(--crit);border-radius:12px;padding:16px 20px;text-align:center;display:none;max-width:min(90%,420px)}
+.dmgOv.show{display:block}
+.dmgOv h3{color:#ffb0b0;margin:0 0 6px;font-size:18px}
+.dmgOv p{margin:4px 0 12px;color:var(--mute);font-size:13px}
+.kpi.hero .v{color:var(--cher)}
+.bottom{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media(max-width:860px){#viewFig{height:max(300px,70vw)}.vbar .note{display:none}}
+</style>
+</head>
+<body>
+<div class="app">
+<header>
+  <div class="brand"><a href="../" aria-label="Back to Physics Sandbox">← Sandbox</a><h1 id="title">Fission</h1><span id="subtitle">reactor &amp; plant console</span></div>
+  <div class="shot"><span>Time <b id="clock">0 s</b></span><span>Burnup <b id="burn">—</b></span></div>
+  <div class="phase" id="phase">—</div>
+  <div class="alarm" id="alarm"></div>
+  <div class="simctl">
+    <div class="seg" id="speed" role="group" aria-label="Simulation speed"><button data-s="1">1×</button><button data-s="10">10×</button><button data-s="100">100×</button><button data-s="1000">1000×</button></div>
+    <button class="btn" id="pause" aria-pressed="false">Pause</button>
+    <button class="btn scram" id="scramBtn">SCRAM</button>
+  </div>
+</header>
+
+<div class="main" id="main">
+  <aside class="col l" id="designCol">
+    <h2>Reactor design</h2>
+    <div>
+      <div class="presets" id="presets"></div>
+      <p class="note" id="presetFull" style="margin:0 0 6px"></p>
+      <div class="fld"><label for="selFuel">Fuel</label><select id="selFuel"></select></div>
+      <div class="ctl"><div class="top"><label for="s-e" id="eLab">Enrichment</label><span class="val" id="v-e"></span></div><input type="range" id="s-e" min="0" max="1" step="0.001" style="--c:var(--fuel)"></div>
+      <div class="fld"><label for="selMod">Moderator</label><select id="selMod"></select></div>
+      <div class="ctl"><div class="top"><label for="s-vm">Moderator : fuel volume</label><span class="val" id="v-vm"></span></div><input type="range" id="s-vm" min="0" max="1" step="0.001"></div>
+    </div>
+    <div>
+      <div class="fld"><label for="selCool">Coolant</label><select id="selCool"></select></div>
+      <div class="fld"><label for="selRod">Control rods</label><select id="selRod"></select></div>
+      <div class="fld"><label for="selRefl">Reflector</label><select id="selRefl"></select></div>
+      <div class="ctl"><div class="top"><label for="s-R">Core radius</label><span class="val" id="v-R"></span></div><input type="range" id="s-R" min="40" max="700" step="5"></div>
+      <div class="ctl"><div class="top"><label for="s-H">Core height</label><span class="val" id="v-H"></span></div><input type="range" id="s-H" min="60" max="1200" step="5"></div>
+      <div class="ctl"><div class="top"><label for="s-P">Thermal rating</label><span class="val" id="v-P"></span></div><input type="range" id="s-P" min="50" max="4500" step="10"></div>
+    </div>
+    <div>
+      <h3>Design lab · equilibrium core</h3>
+      <dl class="lab" id="lab"></dl>
+      <div class="btnrow"><button class="btn primary" id="build">Build &amp; start at power</button><button class="btn" id="coldBtn">Cold shutdown</button></div>
+      <p class="note">Building swaps the whole core. "Cold shutdown" lets you do a start-up by hand: withdraw rods, dilute boron, roll the turbine.</p>
+    </div>
+  </aside>
+
+  <section class="center">
+    <div class="vbar">
+      <div class="seg" id="view" role="group" aria-label="View"><button data-v="plant">Plant overview</button><button data-v="core">Core</button></div>
+      <div class="tabs"><span class="note" style="margin:0" id="viewHint">Click pumps, turbine, breaker, fans or the grid</span><button class="btn" id="wide" aria-pressed="false">⤢ Full width</button></div>
+    </div>
+    <div class="fig" id="viewFig">
+      <canvas id="cv" aria-label="Live view of the reactor and plant"></canvas>
+      <div class="ov tl"><div class="mode" id="modeChips"></div></div>
+      <div class="toast" id="toast"></div>
+      <div class="tip" id="tip"></div>
+      <div class="dmgOv" id="dmgOv"></div>
+    </div>
+    <div class="kpis" id="kpis"></div>
+  <section class="panel tr ctr">
+    <div class="phead"><h2>Traces</h2><div class="seg" id="win"><button data-w="120">2 min</button><button data-w="900">15 min</button><button data-w="7200">2 h</button><button data-w="86400">1 d</button></div></div>
+    <div class="fig"><canvas id="tr"></canvas></div>
+  </section>
+  </section>
+
+  <aside class="col r" id="ctl">
+    <h2>Operation</h2>
+    <div>
+      <h3>Control rods</h3>
+      <div class="ctl inline"><div><label for="t-auto">Automatic rod control</label><div class="act" id="a-auto"></div></div><button class="tg" id="t-auto" aria-pressed="false" aria-label="Automatic rod control"></button></div>
+      <div class="ctl"><div class="top"><label for="s-Pset">Power setpoint</label><span class="val" id="v-Pset"></span></div><input type="range" id="s-Pset" min="0" max="1.1" step="0.01" style="--c:var(--cher)"></div>
+      <div class="ctl"><div class="top"><label for="s-rod">Rod insertion (manual)</label><span class="val" id="v-rod"></span></div><input type="range" id="s-rod" min="0" max="1" step="0.001"><div class="act" id="a-rod"></div></div>
+      <div class="ctl"><div class="top"><label for="s-rs">Rod drive speed</label><span class="val" id="v-rs"></span></div><input type="range" id="s-rs" min="0.001" max="0.05" step="0.001"></div>
+      <div class="ctl" id="boronRow"><div class="top"><label for="s-B">Soluble boron target</label><span class="val" id="v-B"></span></div><input type="range" id="s-B" min="0" max="3000" step="5" style="--c:var(--vio)"><div class="act" id="a-B"></div></div>
+    </div>
+    <div>
+      <h3>Coolant &amp; turbine</h3>
+      <div class="ctl"><div class="top"><label for="s-pump">Primary pump speed</label><span class="val" id="v-pump"></span></div><input type="range" id="s-pump" min="0.2" max="1.1" step="0.01" style="--c:var(--teal)"><div class="act" id="a-pump"></div></div>
+      <div class="ctl inline"><div><label for="t-link">Turbine follows power setpoint</label></div><button class="tg" id="t-link" aria-pressed="false" aria-label="Turbine follows power setpoint"></button></div>
+      <div class="ctl"><div class="top"><label for="s-load">Turbine load</label><span class="val" id="v-load"></span></div><input type="range" id="s-load" min="0" max="1.05" step="0.01" style="--c:var(--gold)"><div class="act" id="a-load"></div></div>
+      <div class="ctl inline"><div><label for="t-dump">Automatic steam dump</label></div><button class="tg" id="t-dump" aria-pressed="false" aria-label="Automatic steam dump"></button></div>
+      <div class="ctl"><div class="top"><label for="s-fans">Cooling-tower fans</label><span class="val" id="v-fans"></span></div><input type="range" id="s-fans" min="0" max="1" step="0.05"></div>
+      <div class="ctl"><div class="top"><label for="s-amb">Ambient temperature</label><span class="val" id="v-amb"></span></div><input type="range" id="s-amb" min="-20" max="45" step="1" style="--c:var(--warn)"></div>
+    </div>
+    <div>
+      <h3>Protection</h3>
+      <div class="ctl inline"><div><label for="t-rps">Reactor protection system</label><div class="act" id="a-rps"></div></div><button class="tg" id="t-rps" aria-pressed="false" aria-label="Reactor protection system"></button></div>
+      <div class="ctl inline"><div><label for="t-eccs">ECCS auto-start</label><div class="act" id="a-eccs"></div></div><button class="tg" id="t-eccs" aria-pressed="false" aria-label="ECCS auto-start"></button></div>
+      <div class="ctl inline"><div><label for="t-diesel">Emergency diesels available</label></div><button class="tg" id="t-diesel" aria-pressed="false" aria-label="Emergency diesels available"></button></div>
+      <div class="btnrow"><button class="btn" id="resetScram">Reset scram</button><button class="btn" id="eccsBtn">Start ECCS</button><button class="btn" id="rhrBtn">RHR</button></div>
+      <h3>Scenarios</h3>
+      <div class="scen" id="scen"></div>
+    </div>
+  </aside>
+</div>
+
+<div class="bottom">
+
+  <section class="panel">
+    <div class="phead"><h2>Reactivity</h2><span class="note" style="margin:0" id="rhoTot"></span></div>
+    <div class="rb" id="rb"></div>
+    <div class="ff" id="ff"></div>
+  </section>
+  <section class="panel sq">
+    <div class="phead"><h2 id="curveTitle">k vs moderation</h2></div>
+    <div class="fig"><canvas id="curve"></canvas></div>
+    <p class="note" id="curveNote"></p>
+  </section>
+  <section class="panel">
+    <div class="phead"><h2>Event log</h2></div>
+    <ul class="log" id="log"></ul>
+  </section>
+</div>
+
+<details class="help">
+  <summary>How to run it, and what the model does</summary>
+  <div class="cols">
+    <div>
+      <p><b>Operating.</b> With automatic rod control on, the rods chase the power setpoint and (if linked) the turbine follows. Turn it off and drive the rods yourself. Boron is the slow, even knob in water reactors. Watch xenon after a power cut: it keeps building for hours and can pin a reactor shut (the "iodine pit").</p>
+      <p><b>The plant view</b> is live and clickable: start or stop the primary, feedwater and circulating-water pumps, trip or reset the turbine, open the generator breaker, change the tower fans or drop the grid.</p>
+      <p><b>Start-up.</b> Press Cold shutdown, then withdraw rods (or set auto with a small setpoint). After criticality the power climbs on a stable period; at a few percent reset the turbine from the plant view, let it reach 3000 rpm and synchronise, then raise the load.</p>
+    </div>
+    <div>
+      <p><b>Physics.</b> Point kinetics with six delayed-neutron groups (implicit, so even fast spectra and prompt-critical excursions are stable). k is built from the four-factor formula — η, ε, resonance escape p, thermal utilisation f — plus leakage from core size, reflector and migration area, blended into a fast-spectrum balance when moderation is weak. Doppler, moderator-temperature and void coefficients are not set by hand: they fall out of the same formula, so an over-moderated graphite core with boiling water gets a positive void coefficient by itself.</p>
+      <p><b>Also modelled:</b> I-135/Xe-135 and Pm-149/Sm-149 poisoning, burnup and conversion, four-group decay heat, fuel and moderator heat-up, boiling and DNB, natural circulation, coolant freezing, SG dry-out, condenser vacuum, ECCS, RHR and diesels.</p>
+    </div>
+    <div>
+      <p><b>Things to try.</b> Pick RBMK, switch off protection, and pull power down with rods while boiling — then scram (graphite-tipped rods add reactivity first). Put natural uranium in a light-water core and watch k∞ drop below 1. Push the moderator ratio right on a PWR until the coefficient turns positive. Run a station blackout and see how long the steam generators last. Load a sodium fast reactor and trip its pumps without a scram.</p>
+      <p><b>Keys.</b> Space pause · S scram · V switch view · F full width.</p>
+      <p class="note">Numbers are tuned to be the right size, not licensing-grade. It is a sandbox.</p>
+    </div>
+  </div>
+</details>
+</div>
+
+<script src="../shared/plant.js"></script>
+<script src="model.js"></script>
+<script>
+{
+const F = window.Fis, Plant = window.Plant, clamp = F.clamp;
+const $ = id => document.getElementById(id);
+const fx = (v, d = 1) => (v == null || !isFinite(v)) ? '—' : v.toFixed(d);
+const css = getComputedStyle(document.documentElement);
+const C = n => css.getPropertyValue(n).trim();
+const col = { cher: '#4fb6ff', fuel: '#ffb15a', pink: C('--pink'), ice: C('--ice'), teal: C('--teal'), gold: C('--gold'), vio: C('--vio'), mute: C('--mute'), dim: C('--dim'), line: C('--line'), line2: C('--line2'), ink: C('--ink'), warn: C('--warn'), crit: C('--crit'), good: C('--good'), hot: C('--hot') };
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+let S = F.create('pwr');
+let D = JSON.parse(JSON.stringify(S.d)); // design being edited
+let view = 'plant', winSec = 900, trace = [], lastSample = -1, evSeen = -1, toastT = 0, lastToast = null;
+F.ev(S, `${S.d.full} at full power`, 'good');
+
+// ---------- design panel ----------
+$('presets').innerHTML = Object.entries(F.PRESETS).map(([k, p]) => `<button data-k="${k}" title="${esc(p.full)}">${p.nm.replace('-like', '')}</button>`).join('');
+const opt = (obj, f) => Object.entries(obj).map(([k, v]) => `<option value="${k}">${esc(f ? f(v) : v.name)}</option>`).join('');
+$('selFuel').innerHTML = opt(F.FUELS);
+$('selMod').innerHTML = opt(F.MODS);
+$('selCool').innerHTML = Object.entries(Plant.COOL).filter(([k]) => k !== 'pbli').map(([k, v]) => `<option value="${k}">${esc(v.name)}</option>`).join('');
+$('selRod').innerHTML = opt(F.RODS);
+$('selRefl').innerHTML = opt(F.REFL);
+// log sliders
+const logMap = { vm: [0.3, 60], e: null };
+function eRange() { const f = F.FUELS[D.fuel]; return [f.eMin / 100, f.eMax / 100]; }
+const toLog = (v, a, b) => Math.log(v / a) / Math.log(b / a), fromLog = (x, a, b) => a * Math.pow(b / a, x);
+function syncDesign() {
+  document.querySelectorAll('#presets button').forEach(b => b.setAttribute('aria-pressed', b.dataset.k === D.preset && !D.custom));
+  $('presetFull').textContent = D.custom ? 'Custom design (based on ' + F.PRESETS[D.preset].nm + ')' : F.PRESETS[D.preset].full;
+  $('selFuel').value = D.fuel; $('selMod').value = D.mod; $('selCool').value = D.cool; $('selRod').value = D.rod; $('selRefl').value = D.refl;
+  $('selCool').disabled = !!F.FUELS[D.fuel].liquid;
+  const [ea, eb] = eRange();
+  $('s-e').value = toLog(clamp(D.e, ea, eb), ea, eb); $('eLab').textContent = F.FUELS[D.fuel].eLab;
+  $('v-e').textContent = (D.e * 100).toFixed(D.e < 0.02 ? 2 : 1) + '%';
+  const vmOn = D.mod !== 'none';
+  $('s-vm').disabled = !vmOn; $('s-vm').value = vmOn ? toLog(clamp(D.vm, 0.3, 60), 0.3, 60) : 0; $('v-vm').textContent = vmOn ? fx(D.vm, D.vm < 10 ? 2 : 1) : '—';
+  $('s-R').value = D.R; $('v-R').textContent = fx(D.R / 100, 2) + ' m';
+  $('s-H').value = D.H; $('v-H').textContent = fx(D.H / 100, 2) + ' m';
+  $('s-P').value = D.P; $('v-P').textContent = D.P + ' MWth';
+  ['s-e', 's-vm', 's-R', 's-H', 's-P'].forEach(id => { const el = $(id); el.style.setProperty('--p', ((el.value - el.min) / (el.max - el.min) * 100) + '%'); });
+  lab();
+}
+function finishDesign() {
+  const C2 = Plant.COOL[D.cool];
+  D.boronOK = (C2.medium === 'h2o' || D.mod === 'h2o') && (D.custom ? true : F.PRESETS[D.preset].boron !== false);
+  if (F.FUELS[D.fuel].liquid) D.cool = 'flibe';
+}
+function lab() {
+  finishDesign();
+  const e = F.evaluate(D), k = e.k;
+  const cls = (v, good, bad) => v <= good ? 'good' : v >= bad ? 'bad' : 'warn';
+  const pcm = v => (v >= 0 ? '+' : '') + fx(v, 1);
+  const crit = k.keff > 1.0;
+  $('lab').innerHTML = `
+    <dt>k∞ (hot, no Xe)</dt><dd class="${k.kinf > 1 ? 'good' : 'bad'}">${fx(k.kinf, 3)}</dd>
+    <dt>k_eff hot · cold</dt><dd class="${crit ? 'good' : 'bad'}">${fx(k.keff, 3)} · ${fx(e.kc.keff, 3)}</dd>
+    <dt>Spectrum</dt><dd>${k.ws > 0.8 ? 'thermal' : k.ws < 0.2 ? 'fast' : 'intermediate'}</dd>
+    <dt>η · ε</dt><dd>${fx(k.eta, 3)} · ${fx(k.eps, 3)}</dd>
+    <dt>p · f</dt><dd>${k.ws > 0.05 ? fx(k.p, 3) : '—'} · ${fx(k.f, 3)}</dd>
+    <dt>Non-leakage</dt><dd>${fx(k.PNL, 3)}</dd>
+    <dt>β · Λ</dt><dd>${fx(k.beta * 1e5, 0)} pcm · ${k.Lam < 1e-5 ? fx(k.Lam * 1e9, 0) + ' ns' : fx(k.Lam * 1e6, 0) + ' µs'}</dd>
+    <i class="sep"></i>
+    <dt>Doppler coefficient</dt><dd class="${e.dop < 0 ? 'good' : 'bad'}">${pcm(e.dop)} pcm/K</dd>
+    <dt>Coolant/mod. temp.</dt><dd class="${e.mod <= 0.5 ? 'good' : 'bad'}">${pcm(e.mod)} pcm/K</dd>
+    ${e.modS != null ? `<dt>Graphite temp.</dt><dd class="${e.modS <= 0 ? 'good' : 'warn'}">${pcm(e.modS)} pcm/K</dd>` : ''}
+    <dt>Void coefficient</dt><dd class="${e.voidC <= 0.5 ? 'good' : 'bad'}">${pcm(e.voidC)} pcm/%</dd>
+    <dt>Rod bank worth</dt><dd>${fx(e.W * 1e5, 0)} pcm</dd>
+    <dt>Cold shutdown margin</dt><dd class="${e.sdm < -0.01 ? 'good' : e.sdm < 0 ? 'warn' : 'bad'}">${e.sdm < 0 ? fx(-e.sdm * 1e5, 0) + ' pcm' : 'NONE (' + fx(e.sdm * 1e5, 0) + ')'}</dd>`;
+  return e;
+}
+const markCustom = () => { D.custom = true; };
+document.getElementById('presets').addEventListener('click', ev => { const b = ev.target.closest('button'); if (!b) return; D = F.design(b.dataset.k); D.custom = false; syncDesign(); drawCurve(); });
+$('selFuel').onchange = e => { D.fuel = e.target.value; const [a, b] = eRange(); D.e = clamp(D.e, a, b); if (D.fuel === 'salt') { D.cool = 'flibe'; if (D.mod === 'none' || D.mod === 'h2o') D.mod = 'c'; } markCustom(); syncDesign(); drawCurve(); };
+$('selMod').onchange = e => { D.mod = e.target.value; if (D.mod !== 'none' && D.vm < 0.3) D.vm = 2; markCustom(); syncDesign(); drawCurve(); };
+$('selCool').onchange = e => { D.cool = e.target.value; D.vc = Plant.COOL[D.cool].medium === 'gas' ? 1 : Plant.COOL[D.cool].medium === 'metal' ? 1.4 : D.mod === 'h2o' ? 0 : 0.8; markCustom(); syncDesign(); drawCurve(); };
+$('selRod').onchange = e => { D.rod = e.target.value; markCustom(); syncDesign(); };
+$('selRefl').onchange = e => { D.refl = e.target.value; markCustom(); syncDesign(); drawCurve(); };
+$('s-e').oninput = e => { const [a, b] = eRange(); D.e = fromLog(+e.target.value, a, b); markCustom(); syncDesign(); drawCurve(); };
+$('s-vm').oninput = e => { D.vm = fromLog(+e.target.value, 0.3, 60); markCustom(); syncDesign(); drawCurve(); };
+['R', 'H', 'P'].forEach(k => $('s-' + k).oninput = e => { D[k] = +e.target.value; markCustom(); syncDesign(); drawCurve(); });
+$('build').onclick = () => { finishDesign(); const d = JSON.parse(JSON.stringify(D)); d.nm = d.custom ? 'Custom' : d.nm; S = F.loadCore(S, d); trace = []; F.ev(S, S.critOK ? `New core built: ${d.custom ? 'custom ' + F.FUELS[d.fuel].name + ' / ' + F.MODS[d.mod].name + ' / ' + Plant.COOL[d.cool].name : d.full} — at full power` : S.msg, S.critOK ? 'good' : 'warn'); syncAll(); };
+$('coldBtn').onclick = () => { finishDesign(); const d = JSON.parse(JSON.stringify(D)); S = F.loadCore(S, d); F.shutdownInit(S); trace = []; F.ev(S, 'Cold shutdown: rods in, turbine tripped. Start up by hand.', 'info'); syncAll(); };
+
+// ---------- operation panel ----------
+$('scen').innerHTML = Object.entries(F.SCEN).map(([k, s]) => `<button class="btn" data-k="${k}">${s.nm}</button>`).join('');
+$('scen').onclick = e => { const b = e.target.closest('button'); if (b) { F.SCEN[b.dataset.k].run(S); syncAll(); } };
+const bindR = (id, get, set, fmt) => { const el = $('s-' + id); el.addEventListener('input', () => { set(+el.value); syncAll(); }); return { id, get, fmt }; };
+const SL = [
+  bindR('Pset', () => S.Pset, v => { S.Pset = v; if (!S.autoRod && !S.scram) S.autoRod = true; }, v => Math.round(v * 100) + '%'),
+  bindR('rod', () => S.rodCmd, v => { S.autoRod = false; S.rodCmd = v; }, v => fx(v * 100, 1) + '%'),
+  bindR('rs', () => S.rodSpeed, v => S.rodSpeed = v, v => fx(v * 100, 1) + '%/s'),
+  bindR('B', () => S.boronCmd, v => S.boronCmd = v, v => fx(v, 0) + ' ppm'),
+  bindR('pump', () => S.plant.pumpCmd, v => S.plant.pumpCmd = v, v => Math.round(v * 100) + '%'),
+  bindR('load', () => S.plant.loadSet, v => { S.link = false; S.plant.loadSet = v; S.plant.loadAuto = true; }, v => Math.round(v * 100) + '%'),
+  bindR('fans', () => S.plant.fans, v => S.plant.fans = v, v => Math.round(v * 100) + '%'),
+  bindR('amb', () => S.plant.ambient, v => S.plant.ambient = v, v => fx(v, 0) + ' °C')
+];
+const TG = [['auto', () => S.autoRod, v => { if (S.scram) return F.ev(S, 'Reset the scram before enabling rod control', 'warn'); S.autoRod = v; }],
+  ['link', () => S.link, v => S.link = v], ['dump', () => S.plant.dumpAuto, v => S.plant.dumpAuto = v],
+  ['rps', () => S.rps, v => { S.rps = v; F.ev(S, v ? 'Reactor protection system armed' : 'REACTOR PROTECTION BYPASSED — no automatic scram', v ? 'good' : 'crit'); }],
+  ['eccs', () => S.eccsAuto, v => S.eccsAuto = v], ['diesel', () => S.plant.diesel, v => S.plant.diesel = v]];
+TG.forEach(([id, get, set]) => $('t-' + id).addEventListener('click', () => { set(!get()); syncAll(); }));
+$('scramBtn').onclick = () => { F.scram(S, 'manual scram'); syncAll(); };
+$('resetScram').onclick = () => { const m = F.resetScram(S); if (m) F.ev(S, m, 'warn'); syncAll(); };
+$('eccsBtn').onclick = () => { S.eccs = !S.eccs; F.ev(S, S.eccs ? 'ECCS started manually' : 'ECCS stopped', 'warn'); syncAll(); };
+$('rhrBtn').onclick = () => { S.plant.rhrOn = !S.plant.rhrOn; S.rhrAuto = false; F.ev(S, S.plant.rhrOn ? 'Residual heat removal started' : 'Residual heat removal stopped', 'info'); syncAll(); };
+$('pause').onclick = () => { S.paused = !S.paused; syncAll(); };
+$('speed').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { S.warp = +b.dataset.s; syncAll(); } });
+$('win').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { winSec = +b.dataset.w; syncAll(); } });
+$('view').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { view = b.dataset.v; syncAll(); } });
+$('wide').onclick = () => { $('main').classList.toggle('wide'); syncAll(); };
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'SELECT' || (e.target.tagName === 'INPUT' && e.target.type !== 'range')) return;
+  if (e.code === 'Space') { e.preventDefault(); S.paused = !S.paused; syncAll(); }
+  else if (e.key === 's' || e.key === 'S') $('scramBtn').click();
+  else if (e.key === 'v' || e.key === 'V') { view = view === 'plant' ? 'core' : 'plant'; syncAll(); }
+  else if (e.key === 'f' || e.key === 'F') $('wide').click();
+});
+function syncAll() {
+  SL.forEach(s => { const el = $('s-' + s.id), v = s.get(); if (document.activeElement !== el) el.value = v; el.style.setProperty('--p', ((v - el.min) / (el.max - el.min) * 100) + '%'); $('v-' + s.id).textContent = s.fmt(v); });
+  TG.forEach(([id, get]) => $('t-' + id).setAttribute('aria-pressed', !!get()));
+  document.querySelectorAll('#speed button').forEach(b => b.setAttribute('aria-pressed', +b.dataset.s === S.warp));
+  document.querySelectorAll('#win button').forEach(b => b.setAttribute('aria-pressed', +b.dataset.w === winSec));
+  document.querySelectorAll('#view button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === view));
+  $('wide').setAttribute('aria-pressed', $('main').classList.contains('wide')); $('wide').classList.toggle('on', $('main').classList.contains('wide'));
+  $('pause').textContent = S.paused ? 'Resume' : 'Pause'; $('pause').classList.toggle('on', S.paused);
+  $('boronRow').style.display = S.d.boronOK ? '' : 'none';
+  $('eccsBtn').classList.toggle('on', S.eccs); $('rhrBtn').classList.toggle('on', S.plant.rhrOn);
+  $('viewHint').textContent = view === 'plant' ? 'Click pumps, turbine, breaker, fans or the grid' : 'Radial power map and axial cut-away';
+}
+
+// ---------- canvas helpers ----------
+function fit(cv) {
+  const r = cv.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = Math.max(10, Math.round(r.width * dpr)), h = Math.max(10, Math.round(r.height * dpr));
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, W: r.width, H: r.height };
+}
+const PSTOPS = [[0, [12, 22, 48]], [0.25, [30, 70, 140]], [0.5, [60, 150, 210]], [0.7, [250, 180, 80]], [0.88, [255, 110, 60]], [1, [255, 240, 210]]];
+function pmap(x, a = 1) { x = clamp(x, 0, 1); let i = 0; while (i < PSTOPS.length - 2 && x > PSTOPS[i + 1][0]) i++; const [x0, c0] = PSTOPS[i], [x1, c1] = PSTOPS[i + 1], f = (x - x0) / (x1 - x0); return `rgba(${c0.map((c, j) => Math.round(c + (c1[j] - c) * f)).join(',')},${a})`; }
+const J0 = x => { const y = x * x; return 1 - y / 4 + y * y / 64 - y * y * y / 2304 + y * y * y * y / 147456; };
+
+// small vessel drawn inside the plant view
+function drawVessel(ctx, x, y, w, h, t) {
+  const d = S.d, P = S.plant, n = Math.min(S.n, 3), water = Plant.COOL[d.cool].medium === 'h2o' || Plant.COOL[d.cool].medium === 'd2o';
+  const glow = clamp(Math.log10(Math.max(S.n, 1e-9)) / 9 + 1, 0, 1.2);
+  ctx.save();
+  ctx.beginPath(); ctx.roundRect(x, y, w, h, Math.min(w / 2, 46)); ctx.fillStyle = '#1a2129'; ctx.fill();
+  ctx.strokeStyle = S.dmg.vessel > 60 ? col.crit : '#46525e'; ctx.lineWidth = 3; ctx.stroke();
+  ctx.clip();
+  // coolant fill
+  const lvl = clamp(P.inv, 0, 1);
+  ctx.fillStyle = Plant.tcol((P.Thot + P.Tcold) / 2, 0.22); ctx.fillRect(x, y + h * (1 - lvl * 0.92), w, h);
+  const cx = x + w * 0.18, cy = y + h * 0.42, cw = w * 0.64, ch = h * 0.42;
+  // core with Cherenkov / heat glow
+  if (water && glow > 0.6 && !S.destroyed) { const g = ctx.createRadialGradient(x + w / 2, cy + ch / 2, 5, x + w / 2, cy + ch / 2, w * 0.8); g.addColorStop(0, `rgba(79,182,255,${0.55 * clamp(glow - 0.6, 0, 0.6) / 0.6})`); g.addColorStop(1, 'rgba(79,182,255,0)'); ctx.fillStyle = g; ctx.fillRect(x, y, w, h); }
+  const ft = clamp((S.Tf - 200) / 2400, 0, 1);
+  ctx.fillStyle = S.melt ? `rgba(255,${120 + 80 * Math.sin(t * 6)},60,0.95)` : pmap(0.35 + 0.65 * ft, 0.95); ctx.fillRect(cx, cy, cw, ch);
+  ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1;
+  for (let i = 1; i < 8; i++) { ctx.beginPath(); ctx.moveTo(cx + cw * i / 8, cy); ctx.lineTo(cx + cw * i / 8, cy + ch); ctx.stroke(); }
+  // rods
+  const ins = S.rods, bottom = d.rodDir === 'bottom';
+  ctx.fillStyle = '#0d1014';
+  for (let i = 1; i < 8; i += 2) { const rx = cx + cw * i / 8 - 2; if (bottom) ctx.fillRect(rx, cy + ch * (1 - ins), 4, ch * ins + h * 0.2); else ctx.fillRect(rx, y + 10, 4, cy - y - 10 + ch * ins); }
+  // boiling bubbles
+  if (P.void > 0.02) { ctx.fillStyle = 'rgba(255,255,255,0.45)'; for (let i = 0; i < 24 * P.void + 3; i++) { const bx = x + 8 + (i * 47) % (w - 16), by = cy + ch - ((t * 40 + i * 31) % (ch + h * 0.3)); ctx.beginPath(); ctx.arc(bx, by, 2, 0, 7); ctx.fill(); } }
+  ctx.restore();
+  if (S.destroyed) { ctx.fillStyle = 'rgba(255,77,77,0.18)'; ctx.beginPath(); ctx.arc(x + w / 2, y + h / 2, w, 0, 7); ctx.fill(); }
+}
+
+function cards() {
+  const P = S.plant, aux = P.gridOk || (P.diesel && P.dieselOK);
+  return [
+    { id: 'rpsCard', label: 'Protection (RPS)', value: S.scram ? 'TRIPPED' : S.rps ? 'armed' : 'BYPASSED', on: S.rps, bad: !S.rps || S.scram },
+    { id: 'dieselCard', label: 'Diesel generators', value: P.gridOk ? (P.diesel ? 'standby' : 'unavailable') : (P.diesel && P.dieselOK ? (S.t - S.dieselT > 12 ? 'running' : 'starting') : 'FAILED'), on: !P.gridOk && P.diesel && P.dieselOK, bad: !P.gridOk && !(P.diesel && P.dieselOK) },
+    { id: 'eccsCard', label: 'ECCS', value: S.eccs ? (aux ? 'injecting' : 'no power') : S.eccsAuto ? 'auto' : 'off', on: S.eccs, bad: S.eccs && !aux },
+    { id: 'rhrCard', label: 'Residual heat removal', value: P.rhrOn ? fx(P.Qrhr, 0) + ' MW' : 'off', on: P.rhrOn },
+    { id: null, label: 'Containment', value: S.breach ? 'BREACHED' : fx(F.ines(S), 0) === '0' ? 'intact' : 'INES ' + F.ines(S), bad: S.breach }
+  ];
+}
+function cardAct(id) {
+  const P = S.plant;
+  if (id === 'rpsCard') { S.rps = !S.rps; F.ev(S, S.rps ? 'Reactor protection system armed' : 'REACTOR PROTECTION BYPASSED', S.rps ? 'good' : 'crit'); }
+  else if (id === 'dieselCard') { P.diesel = !P.diesel; F.ev(S, P.diesel ? 'Diesels made available' : 'Diesels taken out of service', 'warn'); }
+  else if (id === 'eccsCard') $('eccsBtn').click();
+  else if (id === 'rhrCard') $('rhrBtn').click();
+  else if (id === 'reactor') { view = 'core'; }
+  syncAll();
+}
+
+// ---------- core view ----------
+const neut = [];
+function drawCore() {
+  const { ctx, W, H } = fit($('cv'));
+  ctx.clearRect(0, 0, W, H);
+  const d = S.d, P = S.plant, k = S.k || {};
+  const t = performance.now() / 1000;
+  const wide = W > 760;
+  const mapR = Math.min(wide ? W * 0.27 : W * 0.42, (H - (wide ? 90 : H * 0.5)) * 0.5);
+  const mx = wide ? W * 0.32 : W / 2, my = wide ? H / 2 + 10 : mapR + 70;
+  // radial map
+  const mod = F.modNode(d), fast = mod === 'none';
+  const hex = fast || d.fuel === 'triso', chan = ['candu', 'rbmk', 'agr', 'msr'].includes(d.preset) || (mod === 'solid' && !hex) || mod === 'calandria';
+  const N = hex ? 9 : chan ? 13 : 8;
+  const pitch = mapR / (N + 0.5);
+  const rodMap = (i, j) => ((i * 7 + j * 3) % 5 === 0);
+  const ins = S.rods, nPow = Math.max(S.n, 0);
+  ctx.save();
+  ctx.fillStyle = '#0e1216'; ctx.beginPath(); ctx.arc(mx, my, mapR + pitch * 0.9, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#3a4550'; ctx.lineWidth = 3; ctx.stroke();
+  // reflector ring
+  if (d.refl !== 'none') { ctx.strokeStyle = d.refl === 'graphite' ? '#2c3138' : d.refl === 'water' ? 'rgba(90,169,255,0.25)' : '#3a3f47'; ctx.lineWidth = pitch * 0.7; ctx.beginPath(); ctx.arc(mx, my, mapR + pitch * 0.4, 0, 7); ctx.stroke(); }
+  let peak = 0; const cells = [];
+  for (let i = -N; i <= N; i++) for (let j = -N; j <= N; j++) {
+    let x, y;
+    if (hex) { x = (i + j / 2) * pitch * 1.05; y = j * pitch * 0.91; } else { x = i * pitch; y = j * pitch; }
+    const r = Math.hypot(x, y) / mapR; if (r > 1) continue;
+    const rod = rodMap(i + 20, j + 20);
+    const xen = 1 - 0.08 * clamp(S.Xe * 2.65e-18 * 40, 0, 1) * (1 - r);
+    let p = J0(2.405 * r * 0.92) * xen * (1 - (rod ? 0.55 * ins : 0)) * (1 + 0.12 * ins * r);
+    if (S.rodEject > 0 && i === 2 && j === -1) p *= 2.4;
+    peak = Math.max(peak, p); cells.push({ x, y, p, rod });
+  }
+  const lg = Math.log10(Math.max(nPow, 1e-9));
+  const bright = clamp((lg + 9) / 9, 0, 1);
+  cells.forEach(c => {
+    const v = (c.p / peak) * (0.25 + 0.75 * bright) * (S.destroyed ? 0.2 : 1);
+    const T = c.p / peak;
+    const X = mx + c.x, Y = my + c.y;
+    ctx.fillStyle = S.melt && c.p / peak > 0.6 ? `rgba(255,${100 + 60 * Math.sin(t * 5 + c.x)},50,0.95)` : pmap(v * Math.min(1, 0.6 + 0.4 * nPow), 1);
+    ctx.beginPath();
+    if (hex) { for (let a = 0; a < 6; a++) { const an = Math.PI / 6 + a * Math.PI / 3; const px = X + pitch * 0.55 * Math.cos(an), py = Y + pitch * 0.55 * Math.sin(an); a ? ctx.lineTo(px, py) : ctx.moveTo(px, py); } ctx.closePath(); }
+    else if (chan) ctx.arc(X, Y, pitch * 0.34, 0, 7);
+    else ctx.rect(X - pitch * 0.46, Y - pitch * 0.46, pitch * 0.92, pitch * 0.92);
+    ctx.fill();
+    if (chan && mod !== 'none') { ctx.strokeStyle = 'rgba(80,90,100,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(X - pitch / 2, Y - pitch / 2, pitch, pitch); }
+    if (c.rod) { ctx.fillStyle = `rgba(10,12,15,${0.35 + 0.6 * ins})`; ctx.beginPath(); ctx.arc(X, Y, pitch * 0.2, 0, 7); ctx.fill(); ctx.strokeStyle = S.scram ? col.crit : 'rgba(200,210,220,0.55)'; ctx.lineWidth = 1.2; ctx.stroke(); }
+  });
+  ctx.restore();
+  ctx.font = '12.5px Inter, system-ui, sans-serif'; ctx.fillStyle = col.mute; ctx.textAlign = 'center';
+  ctx.fillText(`${hex ? 'Hexagonal' : chan ? 'Channel' : 'Square'} lattice · radial power · rods ${fx(ins * 100, 0)}% in`, mx, my + mapR + pitch + 22);
+  // neutrons: born fast (amber) in fuel, slow down (blue) in moderator
+  const rate = Math.min(6, Math.max(0, (lg + 6) * 0.9));
+  for (let i = 0; i < rate; i++) if (Math.random() < 0.7 && !S.destroyed) { const a = Math.random() * 6.283, r = Math.sqrt(Math.random()) * mapR * 0.9; neut.push({ x: mx + r * Math.cos(a), y: my + r * Math.sin(a), vx: Math.cos(a + Math.random() * 6), vy: Math.sin(a + Math.random() * 6), l: 0, life: fast ? 0.35 : 0.9 }); }
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = neut.length - 1; i >= 0; i--) {
+    const q = neut[i]; q.l += 0.016; const f = q.l / q.life; if (f > 1) { neut.splice(i, 1); continue; }
+    const sp = fast ? 3.2 : 3.2 * Math.max(0.15, 1 - f * 1.3);
+    q.x += q.vx * sp; q.y += q.vy * sp; if (!fast && Math.random() < 0.06) { const a = Math.random() * 6.283; q.vx = Math.cos(a); q.vy = Math.sin(a); }
+    const th = fast ? 0 : clamp(f * 1.4, 0, 1);
+    ctx.fillStyle = `rgba(${Math.round(255 - 170 * th)},${Math.round(190 - 10 * th)},${Math.round(90 + 165 * th)},${0.75 * (1 - f)})`;
+    ctx.fillRect(q.x - 1, q.y - 1, 2.2, 2.2);
+  }
+  if (neut.length > 600) neut.splice(0, neut.length - 600);
+  ctx.globalCompositeOperation = 'source-over';
+  // axial cutaway
+  const ax = wide ? { x: W * 0.64, y: 70, w: Math.min(W * 0.22, 260), h: H - 150 } : { x: W * 0.25, y: my + mapR + 70, w: W * 0.5, h: H - (my + mapR + 70) - 30 };
+  if (ax.h > 120) {
+    const water = Plant.COOL[d.cool].medium === 'h2o' || Plant.COOL[d.cool].medium === 'd2o';
+    ctx.save();
+    ctx.beginPath(); ctx.roundRect(ax.x, ax.y, ax.w, ax.h, Math.min(ax.w / 2, 60)); ctx.fillStyle = '#141a20'; ctx.fill(); ctx.strokeStyle = '#46525e'; ctx.lineWidth = 3; ctx.stroke(); ctx.clip();
+    const lvl = clamp(P.inv, 0, 1);
+    ctx.fillStyle = Plant.tcol((P.Thot + P.Tcold) / 2, 0.25); ctx.fillRect(ax.x, ax.y + ax.h * (1 - lvl * 0.95), ax.w, ax.h);
+    const cy0 = ax.y + ax.h * 0.38, chh = ax.h * 0.38, cx0 = ax.x + ax.w * 0.15, cww = ax.w * 0.7;
+    if (water && bright > 0.6 && !S.destroyed) { const g = ctx.createRadialGradient(ax.x + ax.w / 2, cy0 + chh / 2, 10, ax.x + ax.w / 2, cy0 + chh / 2, ax.w); g.addColorStop(0, `rgba(79,182,255,${0.5 * clamp((bright - 0.6) / 0.4, 0, 1)})`); g.addColorStop(1, 'rgba(79,182,255,0)'); ctx.fillStyle = g; ctx.fillRect(ax.x, ax.y, ax.w, ax.h); }
+    // axial power shape shifted by rods
+    const bottom = d.rodDir === 'bottom';
+    for (let i = 0; i < 24; i++) {
+      const z = (i + 0.5) / 24; // 0 top → 1 bottom
+      let p = Math.sin(Math.PI * (0.06 + 0.88 * z));
+      const rodded = bottom ? (z > 1 - ins) : (z < ins);
+      if (rodded) p *= 0.35; else p *= 1 + 0.5 * ins;
+      ctx.fillStyle = S.melt ? `rgba(255,${110 + 50 * Math.sin(t * 4 + i)},50,0.95)` : pmap(p * (0.3 + 0.7 * bright) * 0.85, 0.95);
+      ctx.fillRect(cx0, cy0 + chh * i / 24, cww, chh / 24 + 0.5);
+    }
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 1; for (let i = 1; i < 9; i++) { ctx.beginPath(); ctx.moveTo(cx0 + cww * i / 9, cy0); ctx.lineTo(cx0 + cww * i / 9, cy0 + chh); ctx.stroke(); }
+    // rods
+    ctx.fillStyle = '#0b0d10';
+    for (let i = 1; i < 9; i += 2) { const rx = cx0 + cww * i / 9 - 3; if (bottom) ctx.fillRect(rx, cy0 + chh * (1 - ins), 6, chh * ins + ax.h); else ctx.fillRect(rx, ax.y, 6, cy0 - ax.y + chh * ins); if (d.tip && !bottom) { ctx.fillStyle = '#3a3f47'; ctx.fillRect(rx, cy0 + chh * ins, 6, chh * 0.25); ctx.fillStyle = '#0b0d10'; } }
+    // flow arrows / bubbles
+    const fl = P.flowEff;
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    for (let i = 0; i < 18; i++) { const bx = ax.x + 10 + (i * 53) % (ax.w - 20); const by = ax.y + ax.h - ((t * 70 * fl + i * 40) % ax.h); ctx.beginPath(); ctx.arc(bx, by, P.void > 0.02 && by < cy0 + chh ? 2.5 : 1.2, 0, 7); ctx.fill(); }
+    ctx.restore();
+    ctx.font = '12.5px Inter, system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.fillStyle = col.mute;
+    const lx = ax.x + ax.w + 14;
+    const row = (lbl, v, y, c) => { ctx.fillStyle = col.mute; ctx.fillText(lbl, lx, y); ctx.font = '500 13px "JetBrains Mono", monospace'; ctx.fillStyle = c || col.ink; ctx.fillText(v, lx, y + 16); ctx.font = '12.5px Inter, system-ui, sans-serif'; };
+    if (wide) {
+      const pk = S.pk || F.peaks(S), L = F.limits(S);
+      row('Coolant out', fx(P.Thot, 0) + ' °C', ax.y + 10, Plant.tcol(P.Thot));
+      row('Coolant in', fx(P.Tcold, 0) + ' °C', ax.y + ax.h - 30, Plant.tcol(P.Tcold));
+      row('Peak fuel', fx(pk.Tpk, 0) + ' °C / ' + L.fuel, cy0, pk.Tpk > L.fuel * 0.85 ? col.crit : col.fuel);
+      row('Avg fuel', fx(S.Tf, 0) + ' °C', cy0 + 40);
+      row(Plant.COOL[d.cool].medium === 'gas' ? 'Gas pressure' : 'Void', Plant.COOL[d.cool].medium === 'gas' ? fx(Plant.press(P), 0) + ' bar' : fx(P.void * 100, 0) + '%', cy0 + 80);
+      row('Flow', fx(P.flowEff * 100, 0) + '%', cy0 + 120);
+      if (mod === 'solid' || mod === 'calandria') row('Moderator', fx(S.Tm, 0) + ' °C', cy0 + 160);
+    }
+  }
+  // title strip
+  ctx.textAlign = 'left'; ctx.font = '600 14px Inter, system-ui, sans-serif'; ctx.fillStyle = col.ink;
+  ctx.fillText(`${F.FUELS[d.fuel].name} · ${F.MODS[d.mod].name} · ${Plant.COOL[d.cool].name}`, 16, H - 16);
+}
+
+// ---------- plant view ----------
+let hover = null;
+function drawPlant() {
+  const { ctx, W, H } = fit($('cv'));
+  const P = S.plant; P._hover = hover;
+  Plant.draw(ctx, W, H, P, { reactor: drawVessel, reactorName: 'Reactor vessel — click for core view', cards: cards(), breached: S.breach, auxName: 'Safety systems', buildingName: S.d.preset === 'rbmk' ? 'Reactor hall (no full containment)' : 'Containment' });
+}
+const cv = $('cv'), tip = $('tip');
+cv.addEventListener('mousemove', e => {
+  if (view !== 'plant') { tip.style.display = 'none'; cv.style.cursor = ''; return; }
+  const r = cv.getBoundingClientRect(), h = Plant.hitTest(S.plant, e.clientX - r.left, e.clientY - r.top);
+  hover = h ? h.id : null; cv.style.cursor = h ? 'pointer' : '';
+  if (h) { tip.style.display = 'block'; tip.style.left = Math.min(e.clientX - r.left + 14, r.width - 270) + 'px'; tip.style.top = (e.clientY - r.top + 14) + 'px'; tip.innerHTML = `<b>${esc(h.label)}</b><span>${esc(tipText(h.id))}</span>`; }
+  else tip.style.display = 'none';
+});
+cv.addEventListener('mouseleave', () => { hover = null; tip.style.display = 'none'; });
+cv.addEventListener('click', e => {
+  if (view !== 'plant') return;
+  const r = cv.getBoundingClientRect(), h = Plant.hitTest(S.plant, e.clientX - r.left, e.clientY - r.top); if (!h) return;
+  const res = Plant.act(S.plant, h.id);
+  if (res === undefined) cardAct(h.id); else if (res) F.ev(S, res[0], res[1]);
+  syncAll();
+});
+function tipText(id) {
+  const P = S.plant;
+  return ({ pump: `${P.pumpOn ? 'Running' : 'Stopped'} · flow ${fx(P.flowEff * 100, 0)}% · click to ${P.pumpOn ? 'stop' : 'start'}`, feed: `${P.feedOn ? 'Running' : 'Stopped'}${P.afwOn ? ' · AFW injecting' : ''} · SG level ${fx(P.level * 100, 0)}%`, circ: `${P.circOn ? 'Running' : 'Stopped'} · condenser ${fx(P.Tcond, 0)} °C`, fans: `Fans ${fx(P.fans * 100, 0)}% · click to cycle 0 / 50 / 100%`, turbine: P.tripped ? 'Tripped · click to reset and roll up' : `${fx(P.rpm * 3000, 0)} rpm · valve ${fx(P.valve * 100, 0)}% · click to trip`, breaker: P.breaker ? 'Closed (on grid) · click to open' : 'Open · click to arm synchronisation', grid: P.gridOk ? 'Offsite power available · click to simulate loss of offsite power' : 'Grid lost · click to restore', reactor: 'Open the core view', sg: `${fx(P.Qsg, 0)} MW transferred · level ${fx(P.level * 100, 0)}%`, cond: `${fx(P.Tcond, 0)} °C · trips turbine above 65 °C`, tower: `Rejecting ${fx(P.Qct, 0)} MW to air at ${fx(P.ambient, 0)} °C`, rpsCard: 'Click to arm / bypass', dieselCard: 'Click to make available / unavailable', eccsCard: 'Click to start / stop injection', rhrCard: 'Click to start / stop RHR' })[id] || '';
+}
+
+// ---------- KPIs ----------
+const KPI = [
+  { k: 'Thermal power', id: 'pth', u: 'MW', hero: 1 }, { k: 'Neutron power', id: 'n', u: '%' }, { k: 'Electric (gross)', id: 'pe', u: 'MWe' },
+  { k: 'Reactivity', id: 'rho', u: '$' }, { k: 'Period', id: 'per', u: 's' }, { k: 'k_eff', id: 'keff' },
+  { k: 'Peak fuel', id: 'tf', u: '°C', lim: 1 }, { k: 'Coolant out', id: 'th', u: '°C' }, { k: 'Xenon worth', id: 'xe', u: 'pcm' },
+  { k: 'Steam gen. level', id: 'lvl', u: '%' }, { k: 'Core damage', id: 'dmg', u: '%' }, { k: 'Efficiency', id: 'eta', u: '%' }
+];
+$('kpis').innerHTML = KPI.map(q => `<div class="kpi${q.hero ? ' hero' : ''}"><div class="k">${q.k}</div><div class="v" id="k-${q.id}">—</div>${q.lim ? '<div class="lim"><i id="kl-tf"></i><b style="left:85%"></b></div>' : ''}</div>`).join('');
+
+// reactivity decomposition
+function rhoBreak() {
+  const d = S.d, ts = F.thermoState(S);
+  const C2 = Plant.COOL[d.cool], T0 = Math.max(20, C2.freeze + 40);
+  const r = st => 1 - 1 / F.kcalc(d, st).keff;
+  const base = { Tf: T0, Tm: T0, Tc: T0, void: 0, inv: 1, boron: 0, xe: 0, sm: 0, fp: 0, e: d.e };
+  const steps = [];
+  let cur = Object.assign({}, base), r0 = r(cur);
+  const add = (name, patch, c) => { const nx = Object.assign({}, cur, patch); const r1 = r(nx); steps.push([name, r1 - r0, c]); cur = nx; r0 = r1; };
+  const excess = r(base);
+  add('Burnup & fission products', { e: ts.e, fp: ts.fp }, col.dim);
+  add('Doppler (fuel temp.)', { Tf: ts.Tf }, col.fuel);
+  add('Moderator / coolant temp.', { Tm: ts.Tm, Tc: ts.Tc, inv: ts.inv }, col.teal);
+  add('Void', { void: ts.void }, col.ice);
+  add('Xenon-135', { xe: ts.xe }, col.vio);
+  add('Samarium-149', { sm: ts.sm }, col.vio);
+  if (d.boronOK) add('Soluble boron', { boron: ts.boron }, col.vio);
+  const rp = S.rhoParts || {};
+  steps.push(['Control rods', rp.rods || 0, col.mute]);
+  if (rp.tip) steps.push(['Graphite rod tips', rp.tip, col.crit]);
+  if (rp.eject) steps.push(['Ejected rod', rp.eject, col.crit]);
+  return { excess, steps };
+}
+function panels() {
+  const P = S.plant, d = S.d, k = S.k || {};
+  const pk = S.pk || F.peaks(S), L = F.limits(S);
+  $('title').textContent = d.custom ? 'Custom fission core' : d.nm + ' fission reactor';
+  $('subtitle').textContent = `${d.P} MWth · ${Plant.COOL[d.cool].short}`;
+  $('clock').textContent = S.t < 3600 ? Math.floor(S.t) + ' s' : S.t < 86400 * 2 ? (S.t / 3600).toFixed(2) + ' h' : (S.t / 86400).toFixed(2) + ' d';
+  $('burn').textContent = fx(S.buMid + S.burn, 1) + ' GWd/t';
+  // phase
+  let ph, cls = '';
+  if (S.destroyed) { ph = 'Reactor destroyed'; cls = 'bad'; }
+  else if (S.melt) { ph = 'Core melt'; cls = 'bad'; }
+  else if (S.scram) { ph = 'SCRAM · ' + (S.n > 1e-3 ? 'power falling' : 'shut down'); cls = 'bad'; }
+  else if (S.n < 1e-6 && (S.rho < -0.001)) ph = 'Shut down · subcritical';
+  else if (S.n < 0.02) ph = S.rho > -0.0005 ? 'Critical · source range' : 'Subcritical';
+  else { ph = `Power operation · ${fx(S.n * 100, 0)}%`; cls = 'burn'; }
+  const pe = $('phase'); pe.textContent = ph; pe.className = 'phase ' + cls;
+  // alarms
+  const al = [];
+  if (!S.rps) al.push(['crit', 'Reactor protection bypassed']);
+  if (pk.Tpk > L.fuel * 0.85) al.push(['crit', `Peak fuel ${fx(pk.Tpk, 0)} °C (limit ${L.fuel})`]);
+  if (S.rho > S.beta * 0.8) al.push(['crit', `Reactivity ${fx(S.rho / S.beta, 2)} $ — approaching prompt critical`]);
+  if (P.x > 0.01 && d.cool !== 'h2o_b') al.push(['crit', 'Coolant boiling in core']);
+  if (P.level < 0.25) al.push(['warn', `Steam generator level ${fx(P.level * 100, 0)}%`]);
+  if (P.Tcond > 50) al.push(['warn', `Condenser ${fx(P.Tcond, 0)} °C — losing vacuum`]);
+  if (!P.gridOk) al.push(['crit', 'Loss of offsite power']);
+  if (P.inv < 0.9) al.push(['crit', `Coolant inventory ${fx(P.inv * 100, 0)}%`]);
+  if (P.Tcold < P.c.freeze + 40) al.push(['warn', `Coolant near freezing (${P.c.freeze} °C)`]);
+  if (P.tripped && S.n > 0.05 && !S.scram) al.push(['warn', 'Turbine tripped — steam to dump/relief']);
+  if (isFinite(S.period) && S.period > 0 && S.period < 20 && S.n > 1e-7) al.push(['warn', `Reactor period ${fx(S.period, 1)} s`]);
+  const ae = $('alarm'); ae.textContent = al.slice(0, 2).map(a => a[1]).join('  ·  '); ae.className = 'alarm' + (al.some(a => a[0] === 'crit') ? ' crit' : '');
+  // KPIs
+  const per = S.period;
+  const set = (id, v, c) => { const el = $('k-' + id); el.innerHTML = v; el.style.color = c || ''; };
+  const u = q => KPI.find(x => x.id === q).u;
+  set('pth', fx(S.Pth, S.Pth < 10 ? 2 : 0) + `<small>${u('pth')}</small>`);
+  set('n', (S.n < 1e-3 ? S.n.toExponential(1) : fx(S.n * 100, S.n < 0.1 ? 2 : 1)) + '<small>%</small>');
+  set('pe', fx(P.Pe, 0) + '<small>MWe</small>', P.Pe > 1 ? col.gold : '');
+  set('rho', fx(S.rho / S.beta, 3) + '<small>$</small>', S.rho > S.beta ? col.crit : S.rho > 0.3 * S.beta ? col.warn : '');
+  set('per', !isFinite(per) || Math.abs(per) > 900 ? '∞' : fx(per, Math.abs(per) < 100 ? 1 : 0) + '<small>s</small>', per > 0 && per < 20 ? col.crit : '');
+  set('keff', fx(1 / (1 - S.rho), 5));
+  set('tf', fx(pk.Tpk, 0) + '<small>°C</small>', pk.Tpk > L.fuel * 0.85 ? col.crit : '');
+  const kl = $('kl-tf'); kl.style.width = clamp(pk.Tpk / L.fuel, 0, 1) * 100 + '%'; kl.style.background = pk.Tpk > L.fuel * 0.85 ? col.crit : pk.Tpk > L.fuel * 0.6 ? col.warn : col.good;
+  set('th', fx(P.Thot, 0) + '<small>°C</small>', P.x > 0.01 && d.cool !== 'h2o_b' ? col.crit : '');
+  const xr = S.k ? -(1 - 1 / F.kcalc(d, Object.assign(F.thermoState(S), { xe: 0 })).keff - (1 - 1 / S.k.keff)) : 0;
+  set('xe', fx(xr * 1e5, 0) + '<small>pcm</small>', xr < -0.02 ? col.vio : '');
+  set('lvl', fx(P.level * 100, 0) + '<small>%</small>', P.level < 0.25 ? col.crit : '');
+  set('dmg', fx(S.dmg.fuel, 1) + '<small>%</small>', S.dmg.fuel > 0.5 ? col.crit : col.good);
+  set('eta', fx(P.Pe / Math.max(S.Pth, 1) * 100, 1) + '<small>%</small>');
+  // control actuals
+  $('a-auto').textContent = S.autoRod ? `holding ${fx(S.Pset * 100, 0)}%` : S.scram ? 'scrammed' : 'manual';
+  $('a-rod').textContent = `actual ${fx(S.rods * 100, 1)}% · bank worth ${fx(F.rodWorth(d) * 1e5, 0)} pcm`;
+  $('a-B').textContent = d.boronOK ? `actual ${fx(S.boron, 0)} ppm` : '';
+  $('a-pump').textContent = `${P.pumpOn ? '' : 'STOPPED · '}flow ${fx(P.flowEff * 100, 0)}%${P.flowEff < P.pumpCmd - 0.05 && P.pumpOn ? ' (natural circ.)' : ''}`;
+  $('a-load').textContent = P.tripped ? 'turbine tripped' : `${fx(P.Pe, 0)} MWe · ${fx(P.rpm * 3000, 0)} rpm`;
+  $('a-rps').textContent = S.scram ? 'TRIPPED: ' + (S.trip || '') : S.rps ? 'armed' : 'bypassed';
+  $('a-eccs').textContent = S.eccs ? 'injecting' : 'standby';
+  // chips
+  const chips = [];
+  chips.push([k.ws > 0.8 ? 'on' : 'pink', k.ws > 0.8 ? 'Thermal spectrum' : k.ws < 0.2 ? 'Fast spectrum' : 'Intermediate']);
+  if (S.autoRod) chips.push(['on', 'Auto rods']);
+  if (!S.rps) chips.push(['pink', 'RPS bypassed']);
+  if (S.plant.tripped) chips.push(['', 'Turbine tripped']);
+  if (S.rho > S.beta) chips.push(['pink', 'PROMPT CRITICAL']);
+  $('modeChips').innerHTML = chips.map(c => `<span class="chip ${c[0]}">${c[1]}</span>`).join('');
+  // reactivity breakdown
+  const rb = rhoBreak();
+  const mx = Math.max(0.02, ...rb.steps.map(s => Math.abs(s[1])), Math.abs(rb.excess));
+  const bar = (v, c) => { const w = clamp(Math.abs(v) / mx, 0, 1) * 50; return `<div class="zb"><i style="${v >= 0 ? 'left:50%' : 'right:50%'};width:${w}%;background:${c}"></i></div>`; };
+  $('rb').innerHTML = `<span>Cold clean excess</span>${bar(rb.excess, col.good)}<span class="rd">${fx(rb.excess * 1e5, 0)}</span>` + rb.steps.map(([n, v, c]) => `<span>${n}</span>${bar(v, c)}<span class="rd">${v >= 0 ? '+' : ''}${fx(v * 1e5, 0)}</span>`).join('') + `<span><b>Net</b></span>${bar(S.rho, S.rho > 0 ? col.warn : col.ice)}<span class="rd"><b>${fx(S.rho * 1e5, 0)}</b></span>`;
+  $('rhoTot').textContent = 'pcm · β = ' + fx(S.beta * 1e5, 0);
+  $('ff').innerHTML = [['η', fx(k.eta, 3)], ['ε', fx(k.eps, 3)], ['p', k.ws > 0.05 ? fx(k.p, 3) : '—'], ['f', fx(k.f, 3)], ['P_NL', fx(k.PNL, 3)], ['CR', fx(k.CR, 2)]].map(([a, b]) => `<div><div class="k">${a}</div><div class="v">${b}</div></div>`).join('');
+  // log
+  const key = S.ev.length ? S.ev.length + ':' + S.ev[S.ev.length - 1].t : 0;
+  if (evSeen !== key) { evSeen = key; $('log').innerHTML = S.ev.slice(-80).reverse().map(e => `<li class="${e.lvl}"><time>${fmtT(e.t)}</time><i class="d"></i><span>${esc(e.msg)}</span></li>`).join(''); }
+  // damage overlay
+  const ov = $('dmgOv');
+  if (S.destroyed || S.melt) {
+    const I = F.ines(S);
+    ov.innerHTML = `<h3>${S.destroyed ? 'Reactor destroyed' : 'Core melt'}</h3><p>Fuel damage ${fx(S.dmg.fuel, 0)}% · ${S.breach ? 'containment breached' : 'containment holding'} · estimated INES ${I}</p><button class="btn primary" id="ovReset">Build a new core</button>`;
+    ov.classList.add('show'); $('ovReset').onclick = () => $('build').click();
+  } else ov.classList.remove('show');
+}
+const fmtT = t => t < 3600 ? fx(t, 1) + ' s' : t < 172800 ? (t / 3600).toFixed(2) + ' h' : (t / 86400).toFixed(2) + ' d';
+function toasts() {
+  const e = S.ev[S.ev.length - 1];
+  if (e && e !== lastToast) { lastToast = e; if (e.lvl === 'warn' || e.lvl === 'crit' || e.lvl === 'good') { const t = $('toast'); t.textContent = e.msg; t.className = 'toast show ' + e.lvl; toastT = performance.now(); } }
+  if (performance.now() - toastT > 4200) $('toast').classList.remove('show');
+}
+
+// ---------- traces ----------
+function sample() {
+  if (S.t - lastSample < Math.max(0.25, winSec / 1500)) return;
+  lastSample = S.t;
+  const pk = S.pk || F.peaks(S), P = S.plant;
+  const xe = S.k ? -(1 - 1 / F.kcalc(S.d, Object.assign(F.thermoState(S), { xe: 0 })).keff - (1 - 1 / S.k.keff)) : 0;
+  trace.push({ t: S.t, n: S.n, rho: S.rho / S.beta, tf: pk.Tpk, th: P.Thot, tc: P.Tcold, xe: xe * 1e5, pe: P.Pe });
+  if (trace.length > 30000) trace.splice(0, 5000);
+}
+const LANES = [
+  { n: 'Power', u: 'log %', log: true, s: [['n', '--cher']] },
+  { n: 'Reactivity', u: '$', min: -1, max: 1, s: [['rho', '--gold']] },
+  { n: 'Temps', u: '°C', s: [['tf', '--warn'], ['th', '--pink'], ['tc', '--teal']] },
+  { n: 'Xenon', u: 'pcm', s: [['xe', '--vio']] },
+  { n: 'Electric', u: 'MWe', s: [['pe', '--good']] }
+];
+function drawTraces() {
+  const { ctx, W, H } = fit($('tr'));
+  ctx.clearRect(0, 0, W, H);
+  const L = 70, R = 10, top = 4, bot = 20, lh = (H - top - bot) / LANES.length;
+  const t1 = S.t, t0 = t1 - winSec, vis = trace.filter(p => p.t >= t0);
+  ctx.font = '12.5px Inter, system-ui, sans-serif'; ctx.textBaseline = 'middle';
+  LANES.forEach((ln, i) => {
+    const y0 = top + i * lh, y1 = y0 + lh - 6;
+    let lo = Infinity, hi = -Infinity;
+    vis.forEach(p => ln.s.forEach(([k]) => { const v = p[k]; if (v < lo) lo = v; if (v > hi) hi = v; }));
+    let mn, mx;
+    if (ln.log) { mn = -8; mx = 1; }
+    else if (ln.min != null) { mn = ln.min; mx = ln.max; }
+    else { if (!isFinite(lo)) { lo = 0; hi = 1; } const pad = (hi - lo) * 0.1 + 1; mn = lo - pad; mx = hi + pad; if (ln.n === 'Electric' || ln.n === 'Temps') mn = Math.max(0, mn); if (ln.n === 'Xenon') mx = Math.max(mx, 0); }
+    ctx.fillStyle = 'rgba(255,255,255,0.018)'; ctx.fillRect(L, y0, W - L - R, y1 - y0);
+    ctx.strokeStyle = col.line; ctx.beginPath(); ctx.moveTo(L, y1 + .5); ctx.lineTo(W - R, y1 + .5); ctx.stroke();
+    ctx.fillStyle = col.ink; ctx.textAlign = 'left'; ctx.fillText(ln.n, 4, y0 + 10); ctx.fillStyle = col.dim; ctx.fillText(ln.u, 4, y0 + 26);
+    ctx.fillStyle = col.dim; if (!ln.log) ctx.fillText(fx(mx, mx > 100 ? 0 : 1), L + 4, y0 + 9);
+    if (ln.n === 'Reactivity') { const yz = y1 - (0 - mn) / (mx - mn) * (y1 - y0); ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.beginPath(); ctx.moveTo(L, yz); ctx.lineTo(W - R, yz); ctx.stroke(); const yp = y1 - (1 - mn) / (mx - mn) * (y1 - y0) + 1; ctx.strokeStyle = 'rgba(255,77,77,0.5)'; ctx.setLineDash([3, 4]); ctx.beginPath(); ctx.moveTo(L, yp); ctx.lineTo(W - R, yp); ctx.stroke(); ctx.setLineDash([]); }
+    if (ln.log) { [-6, -3, 0].forEach(e => { const y = y1 - (e - mn) / (mx - mn) * (y1 - y0); ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(W - R, y); ctx.stroke(); ctx.fillStyle = col.dim; ctx.textAlign = 'right'; ctx.fillText(e === 0 ? '100%' : '1e' + e, W - R - 2, y - 7); ctx.textAlign = 'left'; }); }
+    ln.s.forEach(([k, c]) => {
+      ctx.strokeStyle = C(c); ctx.lineWidth = 1.5; ctx.beginPath(); let pen = false;
+      const step = Math.max(1, Math.floor(vis.length / (W - L - R)));
+      for (let j = 0; j < vis.length; j += step) {
+        const p = vis[j]; let v = p[k]; if (ln.log) v = Math.log10(Math.max(v, 1e-9));
+        const x = L + (p.t - t0) / winSec * (W - L - R), y = y1 - clamp((v - mn) / (mx - mn), 0, 1) * (y1 - y0 - 2);
+        pen ? ctx.lineTo(x, y) : ctx.moveTo(x, y); pen = true;
+      }
+      ctx.stroke();
+    });
+    const last = vis[vis.length - 1];
+    if (last) { const k = ln.s[0][0]; ctx.fillStyle = C(ln.s[0][1]); ctx.textAlign = 'right'; const v = last[k]; ctx.fillText(ln.log ? (v < 1e-3 ? v.toExponential(0) : fx(v * 100, 1) + '%') : fx(v, Math.abs(v) < 10 ? 2 : 0), L - 6, y1 - 8); }
+  });
+  ctx.fillStyle = col.dim; ctx.textAlign = 'center';
+  const lab = winSec <= 120 ? [30, 's', 1] : winSec <= 900 ? [180, 'min', 60] : winSec <= 7200 ? [1800, 'min', 60] : [21600, 'h', 3600];
+  for (let tt = Math.ceil(t0 / lab[0]) * lab[0]; tt <= t1; tt += lab[0]) { if (tt < 0) continue; const x = L + (tt - t0) / winSec * (W - L - R); if (x < L + 14 || x > W - R - 14) continue; ctx.fillText(Math.round(tt / lab[2]) + ' ' + lab[1], x, H - 9); }
+}
+
+// ---------- k vs moderation curve ----------
+let curveCache = null;
+function drawCurve() {
+  const { ctx, W, H } = fit($('curve'));
+  ctx.clearRect(0, 0, W, H);
+  const d = JSON.parse(JSON.stringify(D)); finishDesign();
+  const fast = d.mod === 'none';
+  const xs = [], ys = [], ysC = [];
+  const C2 = Plant.COOL[d.cool];
+  const hot = (dd) => ({ Tf: (C2.Tin + C2.Tout) / 2 + F.FUELS[dd.fuel].dTn, Tm: (C2.Tin + C2.Tout) / 2 + 30, Tc: (C2.Tin + C2.Tout) / 2, void: d.cool === 'h2o_b' ? 0.4 : 0, inv: 1, boron: 0, xe: 0, sm: 0, fp: 0, e: dd.e });
+  const [ea, eb] = (() => { const f = F.FUELS[d.fuel]; return [f.eMin / 100, f.eMax / 100]; })();
+  for (let i = 0; i <= 80; i++) {
+    const x = i / 80;
+    const dd = Object.assign({}, d);
+    if (fast) dd.e = fromLog(x, ea, eb); else dd.vm = fromLog(x, 0.3, 60);
+    xs.push(x); ys.push(F.kcalc(dd, hot(dd)).keff);
+    const cold = Object.assign(hot(dd), { Tf: 20, Tm: 20, Tc: Math.max(20, C2.freeze + 40), void: 0 });
+    ysC.push(F.kcalc(dd, cold).keff);
+  }
+  const all = ys.concat(ysC);
+  const lo = Math.min(0.8, ...all), hi = Math.max(1.2, ...all);
+  const L = 40, R = 10, T = 8, B = 24;
+  const X = x => L + x * (W - L - R), Y = v => H - B - (v - lo) / (hi - lo) * (H - B - T);
+  ctx.font = '12px Inter, system-ui, sans-serif'; ctx.textBaseline = 'middle';
+  ctx.strokeStyle = col.line; ctx.lineWidth = 1;
+  [lo, 1, hi].forEach(v => { ctx.beginPath(); ctx.moveTo(L, Y(v)); ctx.lineTo(W - R, Y(v)); ctx.stroke(); ctx.fillStyle = v === 1 ? col.ink : col.dim; ctx.textAlign = 'right'; ctx.fillText(fx(v, 2), L - 4, Y(v)); });
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(L, Y(1)); ctx.lineTo(W - R, Y(1)); ctx.stroke(); ctx.setLineDash([]);
+  const line = (arr, c, w) => { ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath(); arr.forEach((v, i) => i ? ctx.lineTo(X(xs[i]), Y(v)) : ctx.moveTo(X(xs[i]), Y(v))); ctx.stroke(); };
+  line(ysC, 'rgba(124,200,255,0.45)', 1.2); line(ys, col.cher, 2);
+  const cur = fast ? toLog(clamp(d.e, ea, eb), ea, eb) : toLog(clamp(d.vm, 0.3, 60), 0.3, 60);
+  const dd = Object.assign({}, d); const kv = F.kcalc(dd, hot(dd)).keff;
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(X(cur), Y(kv), 4, 0, 7); ctx.fill(); ctx.strokeStyle = col.cher; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(X(cur), Y(kv), 8, 0, 7); ctx.stroke();
+  ctx.fillStyle = col.dim; ctx.textAlign = 'left';
+  const ticks = fast ? [ea, Math.sqrt(ea * eb), eb] : [0.3, 1, 3, 10, 30, 60];
+  ticks.forEach(v => { const x = fast ? toLog(v, ea, eb) : toLog(v, 0.3, 60); ctx.textAlign = x < 0.05 ? 'left' : x > 0.95 ? 'right' : 'center'; ctx.fillText(fast ? fx(v * 100, 1) + '%' : String(v), X(x), H - 10); });
+  ctx.textAlign = 'left'; ctx.fillStyle = col.cher; ctx.fillText('hot', L + 6, T + 8); ctx.fillStyle = 'rgba(124,200,255,0.7)'; ctx.fillText('cold', L + 40, T + 8);
+  $('curveTitle').textContent = fast ? 'k vs fissile fraction' : 'k vs moderation';
+  $('curveNote').textContent = fast ? 'Fast spectrum: k is set mostly by fissile content and leakage.' : `Moderator : fuel ratio (log). Left of the peak is under-moderated (stable, negative coefficients); right is over-moderated.`;
+}
+
+// ---------- loop ----------
+let prev = performance.now(), slow = 0, curveT = 0;
+function frame(now) {
+  const real = Math.min(0.1, (now - prev) / 1000); prev = now;
+  if (!S.paused) {
+    let simDt = real * S.warp;
+    const fastTr = (isFinite(S.period) && Math.abs(S.period) < 30) || S.rho > 0.5 * S.beta || S.scram && S.t - S.scramT < 30;
+    const h = fastTr ? 0.01 : S.warp >= 1000 ? 0.25 : S.warp >= 100 ? 0.1 : 0.05;
+    const budget = performance.now() + 12;
+    while (simDt > 1e-9 && performance.now() < budget) { const dt = Math.min(h, simDt); F.step(S, dt); simDt -= dt; sample(); }
+  }
+  view === 'plant' ? drawPlant() : drawCore();
+  slow += real;
+  if (slow > 0.12) { slow = 0; panels(); drawTraces(); toasts(); syncAll(); }
+  curveT += real; if (curveT > 2) { curveT = 0; drawCurve(); }
+  requestAnimationFrame(frame);
+}
+syncDesign(); syncAll(); panels(); drawCurve();
+requestAnimationFrame(t => { prev = t; frame(t); });
+window.addEventListener('resize', drawCurve);
+}
+</script>
+</body>
+</html>

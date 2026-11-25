@@ -1,0 +1,1329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fusion Reactor (HELIX-6) · Physics Sandbox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/console.css">
+<style>
+.brand a.back{color:var(--mute);text-decoration:none;font-size:13px;margin-right:4px}
+.brand a.back:hover{color:var(--ink)}
+.vbar{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line);background:var(--p1);flex-wrap:wrap}
+.vbar .seg button{height:32px}
+.tabs{display:flex;gap:8px;align-items:center}
+.tip{position:absolute;pointer-events:none;background:rgba(17,21,26,.96);border:1px solid var(--line2);border-radius:8px;padding:7px 10px;font-size:12.5px;max-width:260px;display:none;z-index:5}
+.tip b{display:block;font-size:13px;margin-bottom:2px}.tip span{color:var(--mute)}
+select{width:100%;height:34px;background:var(--p2);color:var(--ink);border:1px solid var(--line2);border-radius:8px;padding:0 8px;font:inherit;font-size:13px}
+select:focus-visible{outline:2px solid var(--ice);outline-offset:2px}
+.fld{padding:4px 0 6px}.fld label{display:block;font-size:13px;color:var(--mute);margin-bottom:4px}
+.main.wide{grid-template-columns:minmax(0,1fr)}
+.main.wide .center{order:-1}
+.main.wide #xsFig{aspect-ratio:auto;height:min(80vh,860px);max-height:none}
+.main.wide .col.l,.main.wide .col.r{grid-column:auto;border:0;border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:0 28px}
+.main.wide .col>h2{grid-column:1/-1}
+@media(max-width:860px){#xsFig.pvmode{aspect-ratio:1.5}.vbar .note{display:none}}
+</style>
+</head>
+<body>
+<div class="app">
+<header>
+  <div class="brand"><a href="../" class="back" aria-label="Back to Physics Sandbox">← Sandbox</a><h1>HELIX-6</h1><span id="sub">ITER-class tokamak · operator console</span></div>
+  <div class="shot"><span>Shot <b id="shotNo">—</b></span><span>t<sub>shot</sub> <b id="shotT">—</b></span><span>Plant <b id="clock">0 s</b></span></div>
+  <div class="phase" id="phase">—</div>
+  <div class="alarm" id="alarm"></div>
+  <div class="simctl">
+    <div class="seg" id="speed" role="group" aria-label="Simulation speed"><button data-s="1">1×</button><button data-s="3">3×</button><button data-s="10">10×</button><button data-s="30">30×</button></div>
+    <button class="btn" id="pause" aria-pressed="false">Pause</button>
+    <button class="btn" id="auto">Autopilot</button>
+    <button class="btn" id="cold">Cold start</button>
+  </div>
+</header>
+
+<div class="main">
+  <aside class="col l">
+    <h2>Machine configuration</h2>
+    <div class="fld"><label for="selFuel">Fuel cycle</label><select id="selFuel"></select></div>
+    <div class="fld"><label for="selMag">Magnet technology</label><select id="selMag"></select></div>
+    <div class="fld"><label for="selBl">Breeding blanket &amp; coolant</label><select id="selBl"></select></div>
+    <p class="note" id="cfgNote" style="margin:4px 0 10px">Change between shots. Switching magnets discharges the TF coils.</p>
+    <h2>Plant</h2>
+    <div id="plant"></div>
+    <h3>Machine health</h3>
+    <div class="health" id="health"></div>
+    <p class="note" id="healthNote">Damage accumulates from disruptions, ELMs, runaway beams, quenches and divertor overload.</p>
+  </aside>
+
+  <section class="center">
+    <div class="vbar">
+      <div class="seg" id="view" role="group" aria-label="View"><button data-v="xs">Cross-section</button><button data-v="plant">Plant overview</button></div>
+      <div class="tabs"><span class="note" style="margin:0" id="viewHint"></span><button class="btn" id="wide" aria-pressed="false">⤢ Full width</button></div>
+    </div>
+    <div class="fig" id="xsFig">
+      <canvas id="xs" aria-label="Poloidal cross-section of the tokamak with live plasma"></canvas>
+      <canvas id="pv" aria-label="Plant overview: tokamak, blanket loop, turbine, cooling tower" style="display:none"></canvas>
+      <div class="tip" id="tip"></div>
+      <div class="ov tl"><div class="mode" id="modeChips"></div></div>
+      <div class="ov tr" id="legendOv"><div class="legend">Tₑ false colour, 0–25 keV <i></i></div></div>
+      <div class="ov bl" id="xsRead"></div>
+      <div class="toast" id="toast"></div>
+      <div class="summary" id="summary"></div>
+    </div>
+    <div class="kpis" id="kpis"></div>
+  <section class="panel tr">
+    <div class="phead"><h2>Discharge traces</h2><div class="seg" id="win"><button data-w="60">60 s</button><button data-w="240">4 min</button><button data-w="900">15 min</button></div></div>
+    <div class="fig"><canvas id="tr"></canvas></div>
+  </section>
+  </section>
+
+  <aside class="col r" id="ctl"><h2>Plasma control</h2></aside>
+</div>
+
+<div class="bottom">
+
+  <section class="panel sq">
+    <div class="phead"><h2>Lawson diagram</h2><span class="note" style="margin:0">n̄ T̄ τE, 10²⁰ keV s m⁻³</span></div>
+    <div class="fig"><canvas id="law"></canvas></div>
+  </section>
+  <section class="panel sq">
+    <div class="phead"><h2>Profiles</h2></div>
+    <div class="fig"><canvas id="prof"></canvas></div>
+  </section>
+  <section class="panel">
+    <div class="phead"><h2>Power balance</h2></div>
+    <div class="flow" id="flow"></div>
+    <div class="tot" id="tot"></div>
+    <p class="note" id="bopNote">Turbine and net output are hypothetical — ITER-class experiments do not generate electricity.</p>
+  </section>
+  <section class="panel">
+    <div class="phead"><h2>Event log</h2></div>
+    <ul class="log" id="log"></ul>
+  </section>
+</div>
+
+<details class="help">
+  <summary>How to run a shot, and what the model does</summary>
+  <div class="cols">
+    <div>
+      <p><b>Start-up.</b> Start the vacuum pumps, cryoplant and primary coolant. When the coils are below 5 K, energise the TF magnets and charge the central solenoid. Prefill D-T gas (≈0.5–3 mPa; wider with ECRH assist) and initiate breakdown.</p>
+      <p><b>Ramp-up.</b> Raise I<sub>p</sub>. Above ~4 MA the plasma forms an X-point and becomes diverted. Add heating until P<sub>sep</sub> beats the L–H threshold, then raise density with pellets and seed neon to keep divertor heat flux under 10 MW/m².</p>
+      <p><b>Ending.</b> Use Soft stop before the solenoid flux runs out. SPI (shattered-pellet injection) is the emergency button.</p>
+    </div>
+    <div>
+      <p><b>Physics.</b> A 0D power balance with 1D profiles: Bosch–Hale D-T reactivity, IPB98(y,2) confinement, Martin L–H threshold, Spitzer resistivity, bootstrap and driven current, bremsstrahlung and impurity line radiation, helium ash, Greenwald, Troyon and q<sub>95</sub> limits.</p>
+      <p><b>Events.</b> ELMs (smaller and faster with RMP coils or pellet pacing), vertical instability with a saturating feedback loop, stochastic disruptions with thermal and current quench, runaway-electron beams, magnet quench and first-wall overheating.</p>
+      <p><b>Time.</b> Plant start-up (normally weeks) is compressed to about a minute; plasma physics runs in real seconds scaled by the speed buttons.</p>
+      <p><b>Fuels, magnets, blankets.</b> D–D, D–³He and p–¹¹B use their own Bosch–Hale (p–¹¹B: tabulated) reactivities, energy per reaction, charged-particle fraction, ash and Z<sub>eff</sub> — so you can see why they need far hotter, better-confined plasmas. HTS magnets reach 12 T at 20 K with a smaller cryoplant (gyrotrons are retuned to the field). The blanket picks the coolant, the steam conditions and the tritium breeding ratio; the plant overview shows the whole loop to the cooling tower.</p>
+    </div>
+    <div>
+      <p><b>Things to try.</b> Push n̄e past Greenwald with mitigation off. Drop B<sub>T</sub> to 3.6 T at 15 MA and watch q<sub>95</sub>. Raise κ to 1.95 with RMP off and see ELM kicks overwhelm vertical control. Turn the neon off and watch the divertor. Beat the autopilot's Q.</p>
+      <p><b>Keys.</b> Space pause · A autopilot · S soft stop · V plant view · F full width.</p>
+    </div>
+  </div>
+</details>
+</div>
+
+<script src="../shared/plant.js"></script>
+<script>
+/* HELIX-6 tokamak — 0D/1.5D plasma + plant model.
+   Units: Ip MA, B T, ne 1e20 m^-3, T keV, W MJ, P MW, flux V·s, Z cm. */
+(function (G) {
+  const MU0 = 4e-7 * Math.PI;
+  const M = { R0: 6.2, a: 2.0, Swall: 680, Mi: 2.5, flux: 250, IpMax: 17, Bmax: 5.3, Top: 4.5, Tsc: 5.2, Tq: 6.5 };
+  // magnet technologies
+  const MAGS = {
+    lts: { nm: 'Nb₃Sn low-temperature superconductor', short: 'LTS · 4.5 K', Bmax: 5.3, Top: 4.5, Tsc: 5.2, Tq: 6.5, cryoMW: 38 },
+    hts: { nm: 'REBCO high-temperature superconductor', short: 'HTS · 20 K', Bmax: 12, Top: 20, Tsc: 24, Tq: 30, cryoMW: 14 }
+  };
+  // blanket concepts → shared plant coolant
+  const BLANKETS = {
+    wcll: { nm: 'Water-cooled lithium-lead', cool: 'h2o_p', tbr: 1.06, mult: 1.18 },
+    hcpb: { nm: 'Helium-cooled pebble bed', cool: 'he', tbr: 1.12, mult: 1.25 },
+    dcll: { nm: 'Dual-coolant lead-lithium', cool: 'pbli', tbr: 1.15, mult: 1.18 },
+    flibe: { nm: 'Molten-salt FLiBe', cool: 'flibe', tbr: 1.08, mult: 1.20 }
+  };
+  const NR = 24, RHO = [], WT = [];
+  for (let i = 0; i < NR; i++) { const r = (i + 0.5) / NR; RHO.push(r); WT.push(2 * r / NR); }
+  const norm = f => { const a = RHO.map(f); let s = 0; for (let i = 0; i < NR; i++) s += a[i] * WT[i]; return a.map(v => v / s); };
+  const TL = norm(r => Math.pow(1 - r * r, 1.5) + 0.02);
+  const NL = norm(r => Math.pow(1 - r * r, 0.35) + 0.05);
+  const TH = norm(r => r < 0.92 ? 0.3 + 0.7 * Math.pow(1 - (r / 0.92) ** 2, 1.4) : 0.3 * (1 - r) / 0.08 + 0.02);
+  const NH = norm(r => r < 0.92 ? 0.84 + 0.16 * (1 - (r / 0.92) ** 2) : 0.84 * (0.3 + 0.7 * (1 - r) / 0.08));
+  const clamp = (x, a, b) => x < a ? a : x > b ? b : x;
+
+  // Bosch–Hale reactivities, m^3/s
+  function bh(T, BG, mrc2, C1, C2, C3, C4, C5, C6, C7, Tmax) {
+    if (T < 0.2) return 0;
+    T = Math.min(T, Tmax);
+    const th = T / (1 - T * (C2 + T * (C4 + T * C6)) / (1 + T * (C3 + T * (C5 + T * C7))));
+    const xi = Math.cbrt(BG * BG / (4 * th));
+    return C1 * th * Math.sqrt(xi / (mrc2 * T * T * T)) * Math.exp(-3 * xi) * 1e-6;
+  }
+  const svDD = T => bh(T, 31.3970, 937814, 5.43360e-12, 5.85778e-3, 7.68222e-3, 0, -2.964e-6, 0, 0, 100) + bh(T, 31.3970, 937814, 5.65718e-12, 3.41267e-3, 1.99167e-3, 0, 1.05060e-5, 0, 0, 100);
+  const svDHe3 = T => bh(T, 68.7508, 1124572, 5.51036e-10, 6.41918e-3, -2.02896e-3, -1.91080e-5, 1.35776e-4, 0, 0, 190);
+  const PB = [[10, 3e-27], [20, 1.5e-25], [30, 1e-24], [50, 6e-24], [75, 2.2e-23], [100, 5e-23], [150, 1.3e-22], [200, 2.2e-22], [300, 3.4e-22], [500, 4.2e-22], [1000, 4e-22]];
+  const svPB = T => { if (T < 10) return 0; for (let i = 1; i < PB.length; i++) if (T <= PB[i][0]) { const [a, va] = PB[i - 1], [b, vb] = PB[i]; return Math.exp(Math.log(va) + Math.log(vb / va) * Math.log(T / a) / Math.log(b / a)); } return 4e-22; };
+  const FUELS = {
+    dt: { nm: 'D–T', full: 'Deuterium–tritium', Z2: 1, A: 2.5, E: 17.59, fc: 0.2, like: false, ash: 1, xLab: 'Tritium fraction', x0: 0.5, sv: T => sigv(T), gas: 'D-T' },
+    dd: { nm: 'D–D', full: 'Deuterium–deuterium (catalysed-free)', Z2: 1, A: 2.0, E: 3.65, fc: 0.66, like: true, ash: 1, xLab: null, x0: 0, sv: svDD, gas: 'D₂' },
+    dhe3: { nm: 'D–³He', full: 'Deuterium–helium-3 (aneutronic-ish)', Z2: 2, A: 2.5, E: 18.35, fc: 0.95, like: false, ash: 2, xLab: 'Helium-3 fraction', x0: 0.4, sv: svDHe3, gas: 'D-³He' },
+    pb11: { nm: 'p–¹¹B', full: 'Proton–boron-11 (aneutronic)', Z2: 5, A: 1.9, E: 8.68, fc: 1.0, like: false, ash: 3, xLab: 'Boron fraction', x0: 0.12, sv: svPB, gas: 'p-B' }
+  };
+  // Bosch–Hale D-T reactivity, m^3/s
+  function sigv(T) {
+    if (T < 0.25) return T < 0.05 ? 0 : 1.2e-28 * Math.exp(-19.94 / Math.cbrt(T)) / (T ** (2 / 3)) * 0; // negligible
+    T = Math.min(T, 100);
+    const BG = 34.3827, mrc2 = 1124656, C1 = 1.17302e-9, C2 = 1.51361e-2, C3 = 7.51886e-2, C4 = 4.60643e-3, C5 = 1.35e-2, C6 = -1.0675e-4, C7 = 1.366e-5;
+    const th = T / (1 - T * (C2 + T * (C4 + T * C6)) / (1 + T * (C3 + T * (C5 + T * C7))));
+    const xi = Math.cbrt(BG * BG / (4 * th));
+    return C1 * th * Math.sqrt(xi / (mrc2 * T * T * T)) * Math.exp(-3 * xi) * 1e-6;
+  }
+  const LW = T => 1e-31 * (1 + 3 * Math.exp(-(Math.log(Math.max(T, 0.01) / 1.5) ** 2)));
+  const LNe = T => 4e-34 + 6e-33 * Math.exp(-T / 0.3);
+  const LlowZ = T => 6e-35 * Math.exp(-T / 0.04) * (1 - Math.exp(-T / 0.004));
+
+  function create() {
+    return {
+      clock: 0, shot: 10420, speed: 3, paused: false, auto: false, autoStep: 0,
+      cfg: { fuel: 'dt', mag: 'lts', blanket: 'wcll' }, trit: 1500,
+      plant: { pumps: false, cryo: false, coolant: false, turbine: true, logp: 5, Tmag: 293, tfOn: false, tfTarget: 5.3, B: 0, tfDump: false, cs: 0, csCharge: false, prefill: false, p0: 0, Tfw: 25 },
+      ctl: { IpTarget: 15, ramp: 0.4, kappa: 1.75, delta: 0.4, vs: true, nbi: 0, ecrh: 0, icrh: 0, nTarget: 0.9, pellets: true, fT: 0.5, neon: 0, divPump: true, rmp: false, dms: true, prefillSet: 1.2, ecAssist: true },
+      pl: null, dmg: { wall: 0, div: 0, mag: 0, vessel: 0 }, ev: [], evKeys: {}, last: null, energy: { fus: 0, elec: 0, Tburn: 0 },
+      bop: { Pth: 0, gross: 0, recirc: 0, net: 0 }, trace: [], bopPlant: null
+    };
+  }
+
+  function ev(S, msg, lvl = 'info', key = null, every = 3) {
+    if (key) { const k = S.evKeys[key]; if (k != null && S.clock - k < every) return; S.evKeys[key] = S.clock; }
+    S.ev.push({ t: S.clock, shotT: S.pl ? S.pl.age : null, msg, lvl });
+    if (S.ev.length > 200) S.ev.shift();
+  }
+
+  function geom(S, Ip) {
+    const C = S.ctl;
+    const ipf = clamp(Ip / 6, 0, 1);
+    const a = M.a * (0.5 + 0.5 * ipf);
+    const k = 1 + (C.kappa - 1) * clamp((Ip - 1.5) / 5, 0, 1);
+    const d = C.delta * clamp((Ip - 3) / 5, 0, 1);
+    const V = 2 * Math.PI * Math.PI * M.R0 * a * a * k;
+    const eps = a / M.R0;
+    const S_ = 4 * Math.PI * Math.PI * M.R0 * a * Math.sqrt((1 + k * k) / 2);
+    const diverted = Ip > 4 && k > 1.35;
+    return { a, k, d, V, eps, S: S_, diverted };
+  }
+
+  function qOf(g, B, Ip) {
+    if (Ip < 0.01) return 99;
+    const { a, k, d, eps } = g;
+    return 5 * a * a * B / (M.R0 * Ip) * (1 + k * k * (1 + 2 * d * d - 1.2 * d * d * d)) / 2 * (1.17 - 0.65 * eps) / ((1 - eps * eps) ** 2);
+  }
+
+  // ---------- operator actions ----------
+  const A = {};
+  A.breakdown = S => {
+    const P = S.plant, C = S.ctl;
+    if (S.pl) return ev(S, 'Breakdown refused: plasma already present', 'warn');
+    const why = [];
+    if (P.logp > -4 && !P.prefill) why.push('vacuum not below 1e-4 Pa');
+    if (P.B < 2.5 || P.tfDump) why.push('toroidal field below 2.5 T');
+    if (P.cs < 200) why.push('CS not charged (≥200 V·s)');
+    if (!P.coolant) why.push('primary coolant off');
+    if (!P.prefill) why.push('no gas prefill');
+    if (why.length) return ev(S, 'Breakdown interlock: ' + why.join(', '), 'warn');
+    const assist = C.ecAssist && P.B / gyro(S) > 4.1;
+    const lo = assist ? 0.25 : 0.45, hi = assist ? 5 : 3;
+    S.shot++;
+    if (P.p0 < lo) { P.cs -= 8; S.dmg.wall += 0.4; ev(S, `Shot ${S.shot}: breakdown failed — prefill ${P.p0.toFixed(2)} mPa too low, runaway electron seed struck wall`, 'warn'); return; }
+    if (P.p0 > hi) { P.cs -= 8; ev(S, `Shot ${S.shot}: breakdown failed — prefill ${P.p0.toFixed(2)} mPa too high, Townsend avalanche stalled`, 'warn'); return; }
+    const Ip = 0.15, g = geom(S, Ip), ne = 0.012 + 0.04 * P.p0;
+    const T = 0.008;
+    S.pl = {
+      age: 0, Ip, N: ne * g.V, NHe: 0, NNe: 0, cW: 3e-7, W: 1.5 * 2 * ne * T * g.V * 0.01602, Z: (Math.random() - 0.5) * 0.4, H: false, h: 0, lhT: 0,
+      elmT: 0, elmFrac: 0, elmSpike: 0, elmFlash: 0, lastElm: 0, elmF: 0, nbi: 0, ec: 0, ic: 0, LI: 0, soft: false, softIp0: 0, dis: null,
+      pk: { Pfus: 0, Q: 0, T0: 0, Ip: 0, W: 0 }, Efus: 0, d: {}, assist, bt: 0, pelletAcc: 0, pellets: [], nRef: ne
+    };
+    S.pl.LI = Lp(g) * Ip * 1e6;
+    P.cs -= 12 + S.pl.LI; P.prefill = false; P.p0 = 0;
+    ev(S, `Shot ${S.shot}: breakdown at ${(lo < 0.4 ? 'ECRH-assisted ' : '')}loop voltage, Ip 150 kA`, 'good');
+  };
+  A.softStop = (S, why) => {
+    const pl = S.pl; if (!pl || pl.dis || pl.soft) return;
+    pl.soft = true; pl.softIp0 = Math.max(pl.Ip, 2.5);
+    ev(S, 'Controlled ramp-down started' + (why ? ' — ' + why : ''), why ? 'warn' : 'info');
+  };
+  A.spi = S => { if (S.pl && !S.pl.dis) disrupt(S, 'manual shattered-pellet injection', true, false, true); };
+  A.tfDump = S => { const P = S.plant; if (P.B > 0.05) { P.tfDump = true; P.tfOn = false; ev(S, 'TF fast discharge — energy dumped to resistors', 'warn'); if (S.pl && !S.pl.dis) disrupt(S, 'loss of toroidal field', S.ctl.dms, false); } };
+
+  function Lp(g) { return MU0 * M.R0 * (Math.log(8 * M.R0 / (g.a * Math.sqrt(g.k))) + 0.425 - 2); }
+
+  function disrupt(S, cause, mit, vde, manual) {
+    const pl = S.pl; if (!pl || pl.dis) return;
+    const ok = mit && (manual || Math.random() < 0.92);
+    pl.dis = { phase: 'TQ', t: 0, mit: ok, cause, Ip0: pl.Ip, W0: pl.W, vde: !!vde, re: false, reT: 0 };
+    if (ok) ev(S, `Disruption mitigated by SPI — cause: ${cause}`, 'warn');
+    else ev(S, `UNMITIGATED DISRUPTION — ${cause}${mit && !manual ? ' (SPI fired too late)' : ''}`, 'crit');
+  }
+
+  function endShot(S, kind, lvl) {
+    const pl = S.pl;
+    S.last = { shot: S.shot, kind, dur: pl.age, pkPfus: pl.pk.Pfus, pkQ: pl.pk.Q, pkT0: pl.pk.T0, pkIp: pl.pk.Ip, pkW: pl.pk.W, Efus: pl.Efus, lvl };
+    ev(S, `Shot ${S.shot} ended (${kind}) after ${pl.age.toFixed(1)} s · peak ${pl.pk.Pfus.toFixed(0)} MW, Q ${pl.pk.Q.toFixed(1)}`, lvl);
+    S.pl = null;
+  }
+
+  // ---------- main integrator ----------
+  function step(S, dt) {
+    const P = S.plant, C = S.ctl, D = S.dmg;
+    S.clock += dt;
+    const pl = S.pl;
+    const Pfus = pl && pl.d.Pfus ? pl.d.Pfus : 0;
+
+    // vacuum
+    const logBase = P.Tmag < M.Tsc + 10 ? -6 : -4.6;
+    if (P.pumps) P.logp = Math.max(logBase, P.logp - dt * 0.55 * Math.min(1, (P.logp - logBase) / 0.8 + 0.06));
+    else P.logp = Math.min(5, P.logp + dt * 0.05);
+    // cryo
+    const nucl = 0.0011 * Pfus;
+    if (P.cryo) P.Tmag += (M.Top + nucl + (P.B > 0.1 ? 0.15 : 0) - P.Tmag) * Math.min(1, dt * 0.2);
+    else P.Tmag = Math.min(293, P.Tmag + dt * (0.3 + nucl * 0.6));
+    // TF
+    if (P.tfDump) { P.B *= Math.exp(-dt / 2.5); if (P.B < 0.02) { P.B = 0; P.tfDump = false; } }
+    else if (P.tfOn) {
+      if (P.Tmag > M.Tsc && P.B < 0.05) { P.tfOn = false; ev(S, `TF ramp refused: coils not superconducting (T > ${M.Tsc} K)`, 'warn'); }
+      else P.B += clamp(P.tfTarget - P.B, -0.35 * dt, 0.35 * dt);
+    } else P.B = Math.max(0, P.B - 0.35 * dt);
+    if (P.B > 0.3 && P.Tmag > M.Tq && !P.tfDump) {
+      P.tfDump = true; P.tfOn = false; D.mag += 3 + 1.5 * P.B * 5.3 / M.Bmax; P.Tmag = M.Tq + 40; P.cs = 0; P.csCharge = false;
+      ev(S, `MAGNET QUENCH at ${P.B.toFixed(2)} T — fast discharge, coils warmed to ${(M.Tq + 40).toFixed(0)} K`, 'crit');
+      if (S.pl && !S.pl.dis) disrupt(S, 'TF quench', C.dms, false);
+    }
+    // CS
+    if (P.csCharge) {
+      if (P.Tmag > M.Tsc) { P.csCharge = false; ev(S, 'CS charge refused: coils not superconducting', 'warn'); }
+      else if (S.pl) { P.csCharge = false; }
+      else { P.cs = Math.min(M.flux, P.cs + 22 * dt); if (P.cs >= M.flux) { P.csCharge = false; ev(S, 'Central solenoid charged: 250 V·s available', 'good'); } }
+    }
+    // prefill
+    if (!S.pl) {
+      if (P.prefill) P.p0 += (C.prefillSet - P.p0) * Math.min(1, dt * 1.2);
+      else P.p0 *= Math.exp(-dt * (P.pumps ? 0.8 : 0.05));
+    }
+    // first wall / coolant
+    const Pth = S.bop.Pth;
+    const BPw = S.bopPlant, Tin = BPw ? BPw.Tcold : 60, fwLim = fwLimit(S);
+    if (BPw) BPw.pumpOn = P.coolant;
+    if (P.coolant) P.Tfw += (Tin + 0.13 * Pth - P.Tfw) * Math.min(1, dt / 6);
+    else P.Tfw += dt * (Pth * 0.025 - (P.Tfw - 25) * 0.003);
+    if (P.Tfw > fwLim && S.pl && !S.pl.soft && !S.pl.dis) A.softStop(S, 'first-wall over-temperature interlock');
+    if (P.Tfw > fwLim + 100) D.wall += dt * 0.6;
+
+    if (S.pl) plasma(S, dt);
+
+    // balance of plant
+    const p = S.pl, pf = p && p.d.Pfus ? p.d.Pfus : 0, pa = p ? (p.d.Paux || 0) : 0;
+    const B = S.bop, FU = FUELS[S.cfg.fuel], BL = BLANKETS[S.cfg.blanket], MG = MAGS[S.cfg.mag];
+    B.Pth = (1 - FU.fc) * pf * BL.mult + FU.fc * pf + pa;
+    if (!S.bopPlant) S.bopPlant = makePlant(S);
+    const BP = S.bopPlant;
+    if (!P.turbine && !BP.tripped) G.Plant.trip(BP, 'turbine taken offline by operator');
+    if (P.turbine && BP.tripped && BP.Tcond < 50 && BP.Ts > BP.c.Ts - 60 && !BP._manual) G.Plant.resetTurbine(BP);
+    G.Plant.step(BP, dt, B.Pth);
+    G.Plant.drain(BP).forEach(e => ev(S, e.msg, e.lvl, 'bop' + e.msg.slice(0, 12), 20));
+    B.gross = BP.Pe;
+    B.heat = p ? p.nbi / 0.33 + p.ec / 0.45 + p.ic / 0.55 : 0;
+    B.recirc = 18 + (P.cryo ? (P.Tmag < M.Tsc + 15 ? MG.cryoMW : MG.cryoMW * 1.45) : 0) + (P.pumps ? 4 : 0) + (P.B > 0.05 || P.tfOn ? 12 : 0) + (P.csCharge ? 30 : 0) + B.heat + (p ? Math.abs(p.d.dIp || 0) * 40 : 0) + BP.house + (S.cfg.fuel === 'dt' ? 6 : 0);
+    B.net = B.gross - B.recirc;
+    S.energy.fus += pf * dt / 1000; // GJ
+    S.energy.elec += B.net * dt / 3600; // MWh
+    const rate = FU === FUELS.dt ? pf * 1.78e-3 * dt / 1000 : 0; // g of T burnt
+    S.energy.Tburn += rate * 1000; // mg
+    const bred = (1 - FU.fc) > 0.5 && FU !== FUELS.dd ? rate * BL.tbr : 0;
+    const ddT = FU === FUELS.dd ? pf * 1.78e-3 * dt / 1000 * 17.59 / 3.65 * 0.5 * 0.5 : 0; // half the D-D reactions make a triton
+    S.trit = Math.max(0, S.trit - rate + bred + ddT - S.trit * 1.78e-9 * dt); // tritium decays (12.3 y)
+    if (S.auto) autopilot(S);
+  }
+
+  function plasma(S, dt) {
+    const P = S.plant, C = S.ctl, D = S.dmg, pl = S.pl;
+    pl.age += dt;
+    pl.elmFlash *= Math.exp(-dt / 0.06);
+    pl.elmSpike *= Math.exp(-dt / 0.01);
+    if (pl.dis) return disStep(S, dt);
+    const B = Math.max(P.B, 0.01);
+    const dd = pl.d;
+
+    // --- current ramp (PCS) ---
+    if (P.cs <= 0 && !pl.soft) A.softStop(S, 'CS flux exhausted');
+    let IpT = pl.soft ? 0 : Math.min(C.IpTarget, M.IpMax);
+    const rate = pl.soft ? Math.max(C.ramp, 0.35) : C.ramp;
+    const Ip0 = pl.Ip;
+    pl.Ip += clamp(IpT - pl.Ip, -rate * dt, rate * dt);
+    const Ip = Math.max(pl.Ip, 0.02);
+    const g = geom(S, Ip);
+    const V = g.V;
+    const ne = pl.N / V;
+    const nG = Ip / (Math.PI * g.a * g.a);
+    const fGW = ne / nG;
+    const fHe = pl.NHe / pl.N, cNe = pl.NNe / pl.N, cW = pl.cW;
+    const FU = FUELS[S.cfg.fuel], x2 = FU.like ? 0 : C.fT, x1 = 1 - x2;
+    const ionsPerE = 1 / (x1 + x2 * FU.Z2);
+    const dil = Math.max(0.3, 1 - 2 * fHe - 10 * cNe - 30 * cW - 0.04);
+    const Zeff = 1.12 + 2 * fHe + 90 * cNe + 870 * cW + ((x1 + x2 * FU.Z2 * FU.Z2) / (x1 + x2 * FU.Z2) - 1);
+    const ions = dil + fHe + cNe + cW + 0.01;
+    const T = Math.max(pl.W / (1.5 * (1 + ions) * ne * V * 0.01602), 0.001);
+    const h = pl.h;
+    const sT = [], sN = [];
+    let Sfus = 0, Sbr = 0, Sline = 0;
+    const sv = FU.sv;
+    for (let i = 0; i < NR; i++) {
+      const tt = T * ((1 - h) * TL[i] + h * TH[i]);
+      const nn = ne * ((1 - h) * NL[i] + h * NH[i]);
+      sT.push(tt); sN.push(nn);
+      const nf = nn * 1e20 * dil * ionsPerE;
+      Sfus += WT[i] * nf * nf * (FU.like ? 0.5 : x1 * x2) * sv(tt);
+      const n2 = nn * nn * 1e40;
+      Sbr += WT[i] * 5.35e-37 * Zeff * n2 * Math.sqrt(tt);
+      Sline += WT[i] * n2 * (cNe * LNe(tt) + cW * LW(tt) + LlowZ(tt) * (pl.age < 3 ? 2 : 1));
+    }
+    const Pfus = Sfus * V * FU.E * 1.602e-13 / 1e6;
+    const Pbr = Sbr * V / 1e6, Pline = Sline * V / 1e6;
+    const Prad = Pbr + Pline;
+    const Palpha = FU.fc * Pfus;
+
+    // --- heating ---
+    const sc = pl.soft ? clamp((pl.Ip - 2) / (pl.softIp0 - 2), 0, 1) : 1;
+    const nbiInhibit = C.nbi > 0 && ne < 0.28;
+    const tN = nbiInhibit ? 0 : C.nbi * sc, tE = C.ecrh * sc + (pl.assist && pl.age < 4 ? 2 : 0), tI = C.icrh * sc;
+    const k = Math.min(1, dt / 0.3);
+    pl.nbi += (tN - pl.nbi) * k; pl.ec += (tE - pl.ec) * k; pl.ic += (tI - pl.ic) * k;
+    const fn = 1 - Math.exp(-ne / 0.1), fe = clamp((B / gyro(S) - 3.7) / 0.4, 0.05, 1) * 0.95, fi = clamp(ne / 0.45, 0.15, 1) * 0.9;
+    const Paux = pl.nbi * fn + pl.ec * fe + pl.ic * fi;
+    if (nbiInhibit && !pl.soft) ev(S, 'NBI inhibited: shine-through risk at n̄e < 0.28', 'warn', 'nbi', 8);
+    if (C.ecrh > 0 && B / gyro(S) < 4.1) ev(S, 'ECRH resonance outside plasma (field too low for the gyrotron frequency): poor absorption', 'warn', 'ec', 10);
+
+    // --- current drive / ohmic ---
+    const pAvg = pl.W * 1e6 / (1.5 * V);
+    const Lpol = 2 * Math.PI * g.a * Math.sqrt((1 + g.k * g.k) / 2);
+    const Bp = MU0 * Ip * 1e6 / Lpol;
+    const betaP = 2 * MU0 * pAvg / (Bp * Bp);
+    const Ibs = Ip * Math.min(0.6, 0.55 * Math.sqrt(g.eps) * betaP);
+    const gcd = Math.min(0.4, 0.035 * T);
+    const Icd = gcd * (pl.nbi * fn + 0.6 * pl.ec * fe + 0.3 * pl.ic * fi) / (Math.max(ne, 0.05) * M.R0);
+    const fNI = Math.min(0.98, (Ibs + Icd) / Ip);
+    const Rp = 1.65e-9 * 17 * 2 * Zeff / Math.pow(Math.max(T, 0.004), 1.5) * (2 * Math.PI * M.R0) / (Math.PI * g.a * g.a * g.k);
+    const Iind = Ip * (1 - fNI);
+    const Vloop = Math.min(15, Rp * Iind * 1e6);
+    const Pohm = Vloop * Iind;
+    const Pheat = Paux + Palpha + Pohm;
+    const Psep = Pheat - Prad;
+
+    // --- confinement ---
+    const betaT = 2 * MU0 * pAvg / (B * B) * 100;
+    const betaN = betaT * g.a * B / Ip;
+    let H = (0.5 + 0.5 * h) * (C.rmp && h > 0.5 ? 0.94 : 1) * (0.95 + 0.3 * g.d) * (betaN > 2.8 ? 0.85 : 1);
+    const Pl = Math.max(Pheat - 0.7 * Prad, 0.35 * Pheat, 0.3);
+    const tau = H * 0.0562 * Math.pow(Ip, 0.93) * Math.pow(B, 0.15) * Math.pow(Pl, -0.69) * Math.pow(Math.max(ne * 10, 0.1), 0.41) * Math.pow(M.Mi, 0.19) * Math.pow(M.R0, 1.97) * Math.pow(g.eps, 0.58) * Math.pow(g.k, 0.78);
+    // ELM losses are part of the scaling: inter-ELM confinement is better by the ELM loss rate
+    const elmLoss = pl.h > 0.85 ? pl.elmF * pl.elmFrac : 0;
+    const tauIn = 1 / Math.max(1 / tau - 0.9 * elmLoss, 0.25 / tau);
+    pl.W = Math.max(1e-5, (pl.W + dt * (Pheat - Prad)) / (1 + dt / tauIn));
+
+    // --- L-H ---
+    let PLH = 0.0488 * Math.pow(Math.max(ne, 0.05), 0.717) * Math.pow(B, 0.803) * Math.pow(g.S, 0.941) * (2 / M.Mi) * (C.rmp ? 1.1 : 1) * Math.max(1, (0.32 / Math.max(ne, 0.05)) ** 2);
+    if (!pl.H) {
+      if (g.diverted && Psep > PLH) { pl.lhT += dt; if (pl.lhT > 0.15) { pl.H = true; pl.Z += (Math.random() - 0.5) * 0.8; ev(S, `L–H transition: P_sep ${Psep.toFixed(0)} MW > P_LH ${PLH.toFixed(0)} MW, edge pedestal forming`, 'good'); } }
+      else pl.lhT = 0;
+    } else if (Psep < 0.65 * PLH || !g.diverted) { pl.H = false; pl.lhT = 0; ev(S, 'H–L back-transition: pedestal lost', pl.soft ? 'info' : 'warn'); }
+    pl.h += ((pl.H ? 1 : 0) - pl.h) * Math.min(1, dt / 0.4);
+
+    // --- fueling (feedback) ---
+    let nT = pl.soft ? Math.min(C.nTarget, 0.4 * nG) : C.nTarget;
+    if (pl.age < 8) nT = Math.min(nT, 0.05 + 0.04 * pl.age);
+    pl.nRef += Math.max(-0.08 * dt, Math.min(0.03 * dt, nT - pl.nRef)); nT = Math.min(nT, pl.nRef);
+    const tauP = 1.6 + 1.6 * pl.h;
+    const loss = pl.N / tauP;
+    let need = Math.max(0, (nT * V - pl.N) / 0.6 + loss);
+    const etaG = 0.25 - 0.07 * pl.h;
+    let pHz = 0;
+    if (C.pellets && pl.Ip > 2) { pHz = clamp(need / (48 * 0.85), 0, 16); need -= pHz * 48 * 0.85; }
+    const puff = clamp(need / (4.8 * etaG), 0, 200);
+    const src = pHz * 48 * 0.85 + puff * 4.8 * etaG + 0.06 * pl.nbi;
+    pl.N = Math.max(0.5, pl.N + (src - loss) * dt);
+    if (puff > 199 && ne < nT * 0.9) ev(S, 'Gas fueling saturated: enable pellets or lower density target', 'warn', 'fuel', 15);
+    pl.pelletAcc += pHz * dt;
+    if (pl.pelletAcc >= 1) { pl.pelletAcc -= 1; pl.pellets.push(0); }
+
+    // --- impurities / ash ---
+    const tauHe = 5 * tau * (C.divPump ? 1 : 3.5) + 0.5;
+    pl.NHe = Math.max(0, pl.NHe + (Pfus * 3.55e-3 * 17.59 / FU.E * FU.ash - pl.NHe / tauHe) * dt);
+    pl.NNe = Math.max(0, pl.NNe + (C.neon * sc * 4.8 * 0.1 * (g.diverted ? 1 : 0.4) - pl.NNe / 4) * dt);
+    const fradDiv = 1 - Math.exp(-(0.45 * ne * ne + 1.6 * cNe * 100));
+    const Adiv = g.diverted ? 4 : 7;
+    const qDiv = Math.max(0, Psep) * (1 - fradDiv) / Adiv;
+    const tauW = pl.h > 0.5 ? 1 / (0.25 + 0.35 * Math.min(pl.elmF, 20)) : 1.2;
+    pl.cW = Math.max(1e-8, pl.cW + (3e-7 + (qDiv > 10 ? 5e-6 * (qDiv - 10) : 0) - pl.cW / tauW) * dt);
+    if (qDiv > 10) { D.div += (qDiv - 10) * 0.012 * dt; ev(S, `Divertor heat flux ${qDiv.toFixed(1)} MW/m² exceeds 10 MW/m² — tungsten erosion`, 'warn', 'qdiv', 25); }
+
+    // --- ELMs ---
+    pl.elmT += dt;
+    if (pl.h > 0.85) {
+      let f = (0.5 + Math.max(Psep, 0) / 35) * (C.rmp ? 4 : 1);
+      let frac = C.rmp ? 0.012 : 0.05;
+      if (pHz > f) { frac *= f / pHz; f = pHz; }
+      pl.elmF = f; pl.elmFrac = frac;
+      if (pl.elmT > (0.8 + 0.4 * Math.random()) / f) {
+        pl.elmT = 0;
+        const dW = pl.W * frac;
+        pl.W -= dW; pl.elmSpike = 1 + dW / 3; pl.elmFlash = Math.min(1, 0.3 + dW / 15); pl.lastElm = dW;
+        pl.Z += (Math.random() < 0.5 ? -1 : 1) * 0.28 * Math.sqrt(dW);
+        const eDiv = 0.6 * dW;
+        pl.cW += 1e-7 * eDiv;
+        if (eDiv > 8) { D.div += (eDiv - 8) * 0.15; ev(S, `Large type-I ELM: ${dW.toFixed(1)} MJ to divertor — target melting risk`, 'warn', 'elm', 6); }
+      }
+    } else { pl.elmF = 0; pl.elmFrac = 0; }
+
+    // --- vertical stability ---
+    const gam = Math.max(0, 70 * (g.k - 1.25) / 0.5);
+    const Kc = C.vs ? 3 * gam + 20 : 0;
+    const u = clamp(-Kc * pl.Z, -180, 180);
+    pl.Z += (gam * pl.Z + u) * dt + (Math.random() - 0.5) * 0.3 * Math.sqrt(dt);
+    if (!C.vs && Math.abs(pl.Z) > 1) ev(S, 'Vertical position control OFF — plasma drifting', 'warn', 'vs', 5);
+
+    // --- flux ---
+    const LI = Lp(g) * Ip * 1e6;
+    P.cs = Math.min(M.flux, P.cs - Vloop * dt - (LI - pl.LI));
+    pl.LI = LI;
+
+    // --- diagnostics ---
+    const Q = Pfus / Math.max(Paux + Pohm, 0.5);
+    const T0 = sT[0];
+    Object.assign(dd, { Ip, V, ne, nG, fGW, T, T0, Te0: T0, Pfus, Palpha, Paux, Pohm, Prad, Pbr, Pline, Pheat, Psep, PLH, tau, H, betaN, betaT, betaP, q95: qOf(g, B, Ip), Zeff, fHe, cNe, cW, dil, Vloop, fNI, Ibs, Icd, qDiv, fradDiv, Q, g, sT, sN, puff, pHz, fn, fe, fi, nbiInhibit, gam, dIp: (pl.Ip - Ip0) / dt, triple: ne * T * tau, Wth: pl.W, nWall: (1 - FU.fc) * Pfus / M.Swall });
+    pl.Efus += Pfus * dt / 1000;
+    const pk = pl.pk; pk.Pfus = Math.max(pk.Pfus, Pfus); pk.Q = Math.max(pk.Q, Q); pk.T0 = Math.max(pk.T0, T0); pk.Ip = Math.max(pk.Ip, Ip); pk.W = Math.max(pk.W, pl.W);
+    const fr = Prad / Math.max(Pheat, 0.1);
+    dd.dalpha = 0.15 + ne * 0.6 + Math.max(Psep, 0) / 250 + pl.elmSpike * 1.5;
+
+    // --- disruption hazard ---
+    let lam = 0, why = '';
+    const add = (l, w) => { if (l > lam) why = w; lam += l; };
+    if (Ip > 1.5) {
+      add(0.5 * Math.exp((fGW - 1.0) / 0.015), 'density limit (Greenwald)');
+      add(0.5 * Math.exp((2.15 - dd.q95) / 0.05), 'low q95 — external kink');
+      add(0.5 * Math.exp((betaN - 3.5) / 0.1), 'β limit — ideal MHD');
+      if (pl.age > 4) add(0.5 * Math.exp((fr - 1.0) / 0.05), 'radiative collapse');
+      if (Ip > 4 && fGW < 0.1) add(0.25, 'locked mode at low density');
+    }
+    dd.lam = lam; dd.lamWhy = why;
+    if (Math.abs(pl.Z) > 25) return disrupt(S, 'vertical displacement event', C.dms, true);
+    if (C.dms && (lam > 0.4 || (Math.abs(pl.Z) > 10 && Math.abs(gam * pl.Z) > 180))) return disrupt(S, Math.abs(pl.Z) > 10 ? 'loss of vertical control' : why, true);
+    if (Math.random() < lam * dt) return disrupt(S, why, false);
+
+    // --- terminations ---
+    if (pl.age > 0.8 && T < 0.006) return endShot(S, 'burn-through failed', 'warn');
+    if (pl.Ip < 0.8 && (pl.soft || IpT < 0.8) && pl.age > 2) return endShot(S, 'controlled termination', 'good');
+    if (pl.soft && pl.Ip < 3 && pl.H) { /* let it back-transition */ }
+  }
+
+  function disStep(S, dt) {
+    const pl = S.pl, d = pl.dis, D = S.dmg;
+    d.t += dt;
+    pl.d.Pfus = 0; pl.d.Paux = 0; pl.d.Palpha = 0; pl.nbi = pl.ec = pl.ic = 0;
+    pl.d.dalpha = 3 * Math.exp(-d.t / 0.05) + 0.2;
+    if (d.phase === 'TQ') {
+      pl.W *= Math.exp(-dt / 0.0015); pl.elmFlash = 1;
+      if (d.t > 0.004) {
+        d.phase = 'CQ'; d.t = 0;
+        if (d.mit) D.wall += d.W0 * 0.002;
+        else { D.wall += d.W0 * 0.02 * (d.vde ? 1.5 : 1); D.div += d.W0 * 0.01; }
+        const pRE = d.mit ? 0.04 : clamp(0.55 * (d.Ip0 - 6) / 9, 0, 0.6);
+        d.re = Math.random() < pRE;
+      }
+    } else if (d.phase === 'CQ') {
+      pl.W = 0;
+      const tq = d.mit ? 0.07 : 0.035;
+      pl.Ip *= Math.exp(-dt / tq);
+      pl.Z += (pl.Z >= 0 ? 1 : -1) * (d.vde ? 400 : 60) * dt;
+      if (d.re && pl.Ip < 0.6 * d.Ip0) { d.phase = 'RE'; d.t = 0; pl.Ip = 0.6 * d.Ip0; ev(S, `Runaway-electron beam formed: ${pl.Ip.toFixed(1)} MA of relativistic electrons`, 'crit'); }
+      if (pl.Ip < 0.05) {
+        D.vessel += d.Ip0 * (d.mit ? 0.02 : 0.15) * (d.vde ? 3 : 1);
+        return endShot(S, d.mit ? 'mitigated disruption' : (d.vde ? 'VDE disruption' : 'unmitigated disruption'), d.mit ? 'warn' : 'crit');
+      }
+    } else if (d.phase === 'RE') {
+      pl.Z += 15 * dt;
+      if (d.t > 0.6) {
+        D.wall += 9 * d.Ip0 / 15; D.vessel += d.Ip0 * 0.15;
+        ev(S, 'Runaway beam terminated on upper first wall — localised melting', 'crit');
+        return endShot(S, 'runaway-electron impact', 'crit');
+      }
+    }
+  }
+
+  // ---------- autopilot (reference Q≈10 scenario) ----------
+  function autopilot(S) {
+    const P = S.plant, C = S.ctl, pl = S.pl;
+    const st = S.autoStep;
+    const go = (n, msg) => { S.autoStep = n; if (msg) ev(S, 'Autopilot: ' + msg, 'auto'); };
+    switch (st) {
+      case 0: P.pumps = P.cryo = P.coolant = true; go(1, 'pump-down and cryogenic cool-down'); break;
+      case 1: if (P.Tmag < M.Tsc - 0.2) { P.tfTarget = 5.3; P.tfOn = true; go(2, 'energising TF coils to 5.3 T'); } break;
+      case 2: if (P.B > 3 && P.cs < M.flux && !P.csCharge) P.csCharge = true;
+        if (P.B > 5.29 && P.cs >= M.flux && P.logp < -5) { C.prefillSet = 1.2; P.prefill = true; C.ecAssist = true; go(3, FUELS[S.cfg.fuel].gas + ' prefill to 1.2 mPa'); } break;
+      case 3: if (P.p0 > 1.12) {
+        Object.assign(C, { IpTarget: 15, ramp: 0.4, nTarget: 0.3, ecrh: 6, nbi: 0, icrh: 0, neon: 0, rmp: false, pellets: true, kappa: 1.75, delta: 0.4, vs: true, fT: FUELS[S.cfg.fuel].x0, divPump: true, dms: true });
+        A.breakdown(S); if (S.pl) go(4, 'breakdown, ramping Ip to 15 MA'); else go(99);
+      } break;
+      case 4: if (!pl) return go(99); if (pl.Ip > 5) { C.nTarget = 0.45; C.nbi = 16; go(5, 'X-point formed — NBI 16 MW'); } break;
+      case 5: if (!pl) return go(99); if (pl.Ip > 9) { C.nbi = 33; C.ecrh = 20; C.icrh = 10; C.nTarget = 0.5; go(6, 'full heating 63 MW for H-mode access'); } break;
+      case 6: if (!pl) return go(99); if (pl.H && pl.h > 0.8) { C.neon = 1.6; C.rmp = true; C.nTarget = 0.75; go(61, 'H-mode — neon seeding for detachment, RMP ELM control'); } break;
+      case 61: if (!pl) return go(99); if (pl.Ip > 14.9) { C.nTarget = 1.0; C.icrh = 0; go(7, 'flat-top — density to ~85% Greenwald'); } break;
+      case 7: if (!pl) return go(99); if (P.cs < 0.12 * M.flux) { A.softStop(S, null); go(8, 'flux reserve reached — ramp-down'); } break;
+      case 8: if (!pl) go(99, 'shot complete'); break;
+      case 99: S.auto = false; S.autoStep = 0; break;
+    }
+  }
+
+  // HTS machines use frequency-steerable gyrotrons tuned to the TF field target
+  function gyro(S) { return S.cfg.mag === 'hts' ? Math.max(0.6, S.plant.tfTarget / 5.3) : 1; }
+  function fwLimit(S) { const c = G.Plant.COOL[BLANKETS[S.cfg.blanket].cool]; return Math.min(Math.max(c.Tout + 120, 420), 650); }
+  function makePlant(S) {
+    const P = G.Plant.create({ Pnom: 650, coolant: BLANKETS[S.cfg.blanket].cool, kind: 'fusion', storage: 8 });
+    P.loadAuto = true; P.loadSet = 0.85;
+    return P;
+  }
+  function configure(S, cfg) {
+    const old = S.cfg; S.cfg = Object.assign({}, S.cfg, cfg);
+    const MG = MAGS[S.cfg.mag], FU = FUELS[S.cfg.fuel];
+    Object.assign(M, { Bmax: MG.Bmax, Top: MG.Top, Tsc: MG.Tsc, Tq: MG.Tq, Mi: FU.A });
+    if (S.plant.tfTarget > MG.Bmax) S.plant.tfTarget = MG.Bmax;
+    if (!S.plant.cryo && S.plant.Tmag > 200) { /* warm machine: fine */ }
+    if (old.blanket !== S.cfg.blanket || !S.bopPlant) S.bopPlant = makePlant(S);
+    if (old.fuel !== S.cfg.fuel) S.ctl.fT = FU.x0 || S.ctl.fT;
+    if (old.mag !== S.cfg.mag && (S.plant.B > 0.05)) { S.plant.tfOn = false; S.plant.tfDump = true; }
+  }
+  G.Tok = { gyro, M, MAGS, BLANKETS, FUELS, configure, fwLimit, create, step, A, geom, qOf, sigv, ev, NR, RHO, clamp };
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+{
+const T = window.Tok, M = T.M, clamp = T.clamp;
+let S = T.create();
+let trace = [], lastSample = 0, lawTrail = [], evSeen = 0, winSec = 240, toastT = 0, flash = 0, sumShown = null;
+const $ = id => document.getElementById(id);
+const fx = (v, d = 1) => (v == null || !isFinite(v)) ? '—' : v.toFixed(d);
+const css = getComputedStyle(document.documentElement);
+const C = n => css.getPropertyValue(n).trim();
+const col = { pink: C('--pink'), ice: C('--ice'), teal: C('--teal'), gold: C('--gold'), vio: C('--vio'), mute: C('--mute'), dim: C('--dim'), line: C('--line'), line2: C('--line2'), ink: C('--ink'), warn: C('--warn'), crit: C('--crit'), good: C('--good'), hot: C('--hot') };
+
+// ---------- control definitions ----------
+const PLANT = [
+  { id: 'vac', nm: 'Vacuum vessel', tg: 'pumps', tgl: 'Pumps' },
+  { id: 'cryo', nm: 'Cryoplant', tg: 'cryo', tgl: 'Cryo' },
+  { id: 'cool', nm: 'Primary coolant', tg: 'coolant', tgl: 'Pumps' },
+  { id: 'tf', nm: 'TF magnets', tg: 'tfOn', tgl: 'Energise', slider: { k: 'tfTarget', min: 2.5, max: 5.3, step: 0.05, unit: 'T', d: 2 }, extra: '<button class="btn danger" id="b-dump">Fast discharge</button>' },
+  { id: 'cs', nm: 'Central solenoid', extra: '<button class="btn" id="b-cs">Charge</button><div class="bar"><i id="csBar"></i></div>' },
+  { id: 'gas', nm: 'Gas prefill', tg: 'prefill', tgl: 'Valve', slider: { k: 'prefillSet', min: 0, max: 6, step: 0.05, unit: 'mPa', d: 2, ctl: true }, extra: '<label style="display:flex;gap:8px;align-items:center;font-size:13px;color:var(--mute)"><button class="tg" id="t-ecAssist" aria-pressed="true" aria-label="ECRH assist"></button>ECRH assist</label>' },
+  { id: 'bd', nm: 'Breakdown', extra: '<button class="btn primary" id="b-bd">Initiate breakdown</button>' },
+  { id: 'turb', nm: 'Turbine (BOP)', tg: 'turbine', tgl: 'Turbine' }
+];
+const CTL = [
+  ['Plasma current', [
+    { k: 'IpTarget', l: 'I<sub>p</sub> target', min: 0, max: 17, step: 0.1, u: 'MA', d: 1, c: '--pink', act: s => s.pl ? fx(s.pl.Ip, 2) + ' MA' : '' },
+    { k: 'ramp', l: 'Ramp rate', min: 0.1, max: 1, step: 0.05, u: 'MA/s', d: 2 }]],
+  ['Shape & position', [
+    { k: 'kappa', l: 'Elongation κ', min: 1.3, max: 1.95, step: 0.01, d: 2, act: s => s.pl && s.pl.d.gam != null ? 'γ ' + fx(s.pl.d.gam, 0) + ' s⁻¹' : '' },
+    { k: 'delta', l: 'Triangularity δ', min: 0.1, max: 0.55, step: 0.01, d: 2 },
+    { k: 'vs', l: 'Vertical feedback', tg: 1 }]],
+  ['Heating & current drive', [
+    { k: 'nbi', l: 'NBI · 1 MeV D⁰', min: 0, max: 33, step: 0.5, u: 'MW', d: 1, c: '--teal', act: s => s.pl ? (s.pl.d.nbiInhibit ? 'inhibit' : fx(s.pl.nbi * (s.pl.d.fn || 0), 1) + ' abs') : '' },
+    { k: 'ecrh', l: 'ECRH · 170 GHz', min: 0, max: 20, step: 0.5, u: 'MW', d: 1, c: '--gold', act: s => s.pl ? fx(s.pl.ec * (s.pl.d.fe || 0), 1) + ' abs' : '' },
+    { k: 'icrh', l: 'ICRH · 50 MHz', min: 0, max: 20, step: 0.5, u: 'MW', d: 1, c: '--vio', act: s => s.pl ? fx(s.pl.ic * (s.pl.d.fi || 0), 1) + ' abs' : '' }]],
+  ['Fuelling', [
+    { k: 'nTarget', l: 'n̄<sub>e</sub> target', min: 0.1, max: 1.5, step: 0.01, u: '10²⁰', d: 2, c: '--teal', act: s => s.pl && s.pl.d.nG ? 'n<sub>GW</sub> ' + fx(s.pl.d.nG, 2) : '' },
+    { k: 'pellets', l: 'Pellet injector', tg: 1, act: s => s.pl && s.pl.d.pHz != null ? fx(s.pl.d.pHz, 1) + ' Hz · gas ' + fx(s.pl.d.puff, 0) : '' },
+    { k: 'fT', l: 'Tritium fraction', min: 0, max: 1, step: 0.01, pct: 1, c: '--pink' }]],
+  ['Exhaust & edge', [
+    { k: 'neon', l: 'Neon seeding', min: 0, max: 6, step: 0.1, u: 'Pa·m³/s', d: 1, c: '--vio', act: s => s.pl && s.pl.d.fradDiv != null ? 'f<sub>rad,div</sub> ' + fx(s.pl.d.fradDiv * 100, 0) + '%' : '' },
+    { k: 'divPump', l: 'Divertor cryopumps', tg: 1 },
+    { k: 'rmp', l: 'RMP ELM control', tg: 1, act: s => s.pl && s.pl.elmF ? fx(s.pl.elmF, 1) + ' Hz ELMs' : '' }]],
+  ['Protection', [
+    { k: 'dms', l: 'Disruption mitigation armed', tg: 1 }]]
+];
+
+// ---------- build plant panel ----------
+$('plant').innerHTML = PLANT.map(p => {
+  const sl = p.slider ? `<div class="ctl" style="grid-column:2/4;padding:2px 0 0"><div class="top"><label for="s-${p.slider.k}" style="font-size:13px;color:var(--mute);font-weight:400">${p.id === 'tf' ? 'Field target' : 'Prefill pressure'}</label><span class="val" id="v-${p.slider.k}"></span></div><input type="range" id="s-${p.slider.k}" min="${p.slider.min}" max="${p.slider.max}" step="${p.slider.step}"></div>` : '';
+  const tg = p.tg ? `<button class="tg" id="t-${p.tg}" aria-pressed="false" aria-label="${p.nm} ${p.tgl}"></button>` : '';
+  return `<div class="row"><span class="dot" id="d-${p.id}"></span><span class="nm">${p.nm}<small id="r-${p.id}"></small></span><span>${tg}</span>${p.extra ? `<div class="sub">${p.extra}</div>` : ''}${sl}</div>`;
+}).join('');
+$('health').innerHTML = [['wall', 'First wall'], ['div', 'Divertor'], ['mag', 'Magnets'], ['vessel', 'Vessel']].map(([k, n]) => `<span>${n}</span><div class="bar"><i id="h-${k}" style="width:0"></i></div><span class="rd" id="hv-${k}">0%</span>`).join('') + `<span></span><button class="btn" id="b-maint" style="justify-self:start">Maintenance</button><span></span>`;
+
+// ---------- build control panel ----------
+$('ctl').insertAdjacentHTML('beforeend', CTL.map(([sec, items]) => `<div><h3>${sec}</h3>${items.map(it => it.tg
+  ? `<div class="ctl inline"><div><label for="t-${it.k}">${it.l}</label>${it.act ? `<div class="act" id="a-${it.k}"></div>` : ''}</div><button class="tg" id="t-${it.k}" aria-pressed="false" aria-label="${it.l.replace(/<[^>]+>/g, '')}"></button></div>`
+  : `<div class="ctl"><div class="top"><label for="s-${it.k}">${it.l}</label><span class="val" id="v-${it.k}"></span></div><input type="range" id="s-${it.k}" min="${it.min}" max="${it.max}" step="${it.step}" style="--c:var(${it.c || '--ice'})">${it.act ? `<div class="act" id="a-${it.k}"></div>` : ''}</div>`).join('')}${sec === 'Protection' ? '<div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap"><button class="btn" id="b-soft">Soft stop</button><button class="btn spi" id="b-spi">SPI — kill plasma</button></div>' : ''}</div>`).join(''));
+
+// ---------- KPI tiles ----------
+const KPI = [
+  { k: 'Fusion power', id: 'Pfus', u: 'MW', hero: 1 },
+  { k: 'Gain Q', id: 'Q' },
+  { k: 'Plasma current', id: 'Ip', u: 'MA' },
+  { k: 'Core Tₑ', id: 'T0', u: 'keV' },
+  { k: 'n̄ₑ / Greenwald', id: 'fGW', lim: [1.0, 1.2] },
+  { k: 'βN (Troyon 3.5)', id: 'bN', lim: [3.5, 4.2] },
+  { k: 'q95 (limit 2)', id: 'q95', lim: [2, 6], inv: 1 },
+  { k: 'Stored energy', id: 'W', u: 'MJ' },
+  { k: 'τE', id: 'tau', u: 's' },
+  { k: 'Divertor peak', id: 'qd', u: 'MW/m²', lim: [10, 25] },
+  { k: 'Disruptivity', id: 'lam', u: '/s', lim: [0.4, 1] },
+  { k: 'Net electric', id: 'net', u: 'MW' }
+];
+$('kpis').innerHTML = KPI.map(q => `<div class="kpi${q.hero ? ' hero' : ''}"><div class="k">${q.k}</div><div class="v" id="k-${q.id}">—</div>${q.lim ? `<div class="lim"><i id="kl-${q.id}"></i><b style="left:${q.inv ? (q.lim[0] / q.lim[1] * 100) : (q.lim[0] / q.lim[1] * 100)}%"></b></div>` : ''}</div>`).join('');
+
+// ---------- bind inputs ----------
+function manual() { if (S.auto) { S.auto = false; S.autoStep = 0; T.ev(S, 'Manual control — autopilot disengaged', 'auto'); } }
+const sliderKeys = [];
+function bindSlider(k, target) {
+  const el = $('s-' + k); if (!el) return;
+  sliderKeys.push([k, target]);
+  el.addEventListener('input', () => { manual(); (target === 'plant' ? S.plant : S.ctl)[k] = parseFloat(el.value); syncSlider(k, target); });
+}
+CTL.forEach(([, items]) => items.forEach(it => { if (!it.tg) bindSlider(it.k, 'ctl'); }));
+bindSlider('tfTarget', 'plant'); bindSlider('prefillSet', 'ctl');
+const tgl = [['pumps', 'plant'], ['cryo', 'plant'], ['coolant', 'plant'], ['tfOn', 'plant'], ['prefill', 'plant'], ['turbine', 'plant'], ['ecAssist', 'ctl'], ['vs', 'ctl'], ['pellets', 'ctl'], ['divPump', 'ctl'], ['rmp', 'ctl'], ['dms', 'ctl']];
+tgl.forEach(([k, t]) => { const el = $('t-' + k); el && el.addEventListener('click', () => { manual(); const o = t === 'plant' ? S.plant : S.ctl; o[k] = !o[k]; if (k === 'tfOn' && o[k]) S.plant.tfDump = false; syncAll(); }); });
+$('b-dump').onclick = () => { manual(); T.A.tfDump(S); };
+$('b-cs').onclick = () => { manual(); if (S.pl) T.ev(S, 'CS cannot be recharged during a discharge', 'warn'); else S.plant.csCharge = true; };
+$('b-bd').onclick = () => { manual(); T.A.breakdown(S); };
+$('b-soft').onclick = () => { manual(); T.A.softStop(S, null); };
+$('b-spi').onclick = () => { manual(); T.A.spi(S); };
+$('b-maint').onclick = () => { if (S.pl) return T.ev(S, 'Maintenance requires the machine to be between shots', 'warn'); S.dmg = { wall: 0, div: 0, mag: 0, vessel: 0 }; T.ev(S, 'Remote-handling maintenance complete: components replaced', 'good'); };
+$('pause').onclick = () => { S.paused = !S.paused; syncAll(); };
+$('auto').onclick = () => { S.auto = !S.auto; if (S.auto) { S.autoStep = S.pl ? (S.pl.Ip > 14.9 ? 7 : S.pl.Ip > 9 ? (S.pl.H ? 61 : 6) : S.pl.Ip > 5 ? 5 : 4) : 0; T.ev(S, 'Autopilot engaged — reference Q≈6 scenario', 'auto'); } else T.ev(S, 'Autopilot disengaged', 'auto'); syncAll(); };
+$('cold').onclick = () => { const cfg = S.cfg; S = T.create(); T.configure(S, cfg); makeLaw(); trace = []; lawTrail = []; evSeen = 0; sumShown = null; $('summary').classList.remove('show'); T.ev(S, 'Cold start: plant at room temperature and atmosphere', 'info'); syncAll(); };
+$('speed').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { S.speed = +b.dataset.s; syncAll(); } });
+$('win').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { winSec = +b.dataset.w; syncAll(); } });
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' && e.target.type !== 'range') return;
+  if (e.code === 'Space') { e.preventDefault(); S.paused = !S.paused; syncAll(); }
+  else if (e.key === 'a' || e.key === 'A') $('auto').click();
+  else if (e.key === 's' || e.key === 'S') $('b-soft').click();
+});
+
+function syncSlider(k, t) {
+  const el = $('s-' + k), o = t === 'plant' ? S.plant : S.ctl, v = o[k];
+  if (document.activeElement !== el || el.value != v) { if (document.activeElement !== el) el.value = v; }
+  const pct = (v - el.min) / (el.max - el.min) * 100; el.style.setProperty('--p', pct + '%');
+  const def = CTL.flatMap(x => x[1]).find(x => x.k === k) || PLANT.find(p => p.slider && p.slider.k === k).slider;
+  $('v-' + k).textContent = def.pct ? Math.round(v * 100) + '%' : fx(v, def.d) + (def.u || def.unit ? ' ' + (def.u || def.unit) : '');
+}
+function syncAll() {
+  if (typeof syncView === 'function') syncView();
+  sliderKeys.forEach(([k, t]) => syncSlider(k, t));
+  tgl.forEach(([k, t]) => { const el = $('t-' + k); if (el) el.setAttribute('aria-pressed', !!(t === 'plant' ? S.plant : S.ctl)[k]); });
+  document.querySelectorAll('#speed button').forEach(b => b.setAttribute('aria-pressed', +b.dataset.s === S.speed));
+  document.querySelectorAll('#win button').forEach(b => b.setAttribute('aria-pressed', +b.dataset.w === winSec));
+  $('pause').textContent = S.paused ? 'Resume' : 'Pause'; $('pause').classList.toggle('on', S.paused);
+  $('auto').classList.toggle('on', S.auto);
+}
+
+// ---------- canvas helpers ----------
+function fit(cv) {
+  const r = cv.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = Math.max(10, Math.round(r.width * dpr)), h = Math.max(10, Math.round(r.height * dpr));
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, W: r.width, H: r.height };
+}
+const STOPS = [[0, [26, 11, 46]], [0.15, [74, 16, 99]], [0.3, [142, 26, 107]], [0.5, [214, 48, 106]], [0.7, [248, 119, 74]], [0.85, [253, 192, 107]], [1, [255, 243, 214]]];
+function cmap(x, a = 1) {
+  x = clamp(x, 0, 1); let i = 0; while (i < STOPS.length - 2 && x > STOPS[i + 1][0]) i++;
+  const [x0, c0] = STOPS[i], [x1, c1] = STOPS[i + 1], f = (x - x0) / (x1 - x0);
+  return `rgba(${c0.map((c, j) => Math.round(c + (c1[j] - c) * f)).join(',')},${a})`;
+}
+
+// ---------- cross-section ----------
+const parts = { neut: [], pel: [], t: 0 };
+function miller(Rc, Zc, a, k, d, n, kl, dl) {
+  const p = [];
+  for (let i = 0; i <= n; i++) {
+    const th = i / n * 2 * Math.PI, up = Math.sin(th) >= 0;
+    const kk = up ? k : (kl || k), dd = up ? d : (dl == null ? d : dl);
+    p.push([Rc + a * Math.cos(th + dd * Math.sin(th)), Zc + kk * a * Math.sin(th)]);
+  }
+  return p;
+}
+function drawXS() {
+  const { ctx, W, H } = fit($('xs'));
+  const tb = W < 600 ? 72 : 44, bb = 24, sc = Math.max(1, Math.min(W / 27.2, (H - tb - bb) / 17.2)), ox = W / 2, oz = tb + (H - tb - bb) / 2;
+  const X = r => ox + r * sc, Y = z => oz - z * sc;
+  ctx.clearRect(0, 0, W, H);
+  // backdrop grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.025)'; ctx.lineWidth = 1;
+  for (let r = -14; r <= 14; r++) { ctx.beginPath(); ctx.moveTo(X(r), 0); ctx.lineTo(X(r), H); ctx.stroke(); }
+  for (let z = -9; z <= 9; z++) { ctx.beginPath(); ctx.moveTo(0, Y(z)); ctx.lineTo(W, Y(z)); ctx.stroke(); }
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.setLineDash([4, 6]); ctx.beginPath(); ctx.moveTo(X(0), Y(8.6)); ctx.lineTo(X(0), Y(-8.6)); ctx.stroke(); ctx.setLineDash([]);
+  const P = S.plant, pl = S.pl, d = pl ? pl.d : null, dis = pl && pl.dis;
+  const mir = (fn) => { fn(1); fn(-1); };
+  const path = (pts, s) => { ctx.beginPath(); pts.forEach((q, i) => i ? ctx.lineTo(X(s * q[0]), Y(q[1])) : ctx.moveTo(X(s * q[0]), Y(q[1]))); };
+  // cryostat
+  ctx.strokeStyle = 'rgba(255,255,255,0.10)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.roundRect(X(-13.1), Y(8.5), 26.2 * sc, 17 * sc, 14); ctx.stroke();
+  // TF coils
+  const bf = P.B / 5.3, quench = P.tfDump;
+  mir(s => {
+    ctx.beginPath();
+    ctx.moveTo(X(s * 2.6), Y(-4.8)); ctx.lineTo(X(s * 2.6), Y(4.8));
+    ctx.bezierCurveTo(X(s * 2.6), Y(7.9), X(s * 8.9), Y(8.1), X(s * 10.6), Y(3.6));
+    ctx.bezierCurveTo(X(s * 11.5), Y(1.0), X(s * 11.4), Y(-2.0), X(s * 10.4), Y(-4.0));
+    ctx.bezierCurveTo(X(s * 8.6), Y(-7.7), X(s * 2.6), Y(-7.9), X(s * 2.6), Y(-4.8));
+    ctx.lineWidth = 0.72 * sc; ctx.strokeStyle = '#27303a'; ctx.stroke();
+    ctx.lineWidth = 0.72 * sc - 4; ctx.strokeStyle = '#1c232b'; ctx.stroke();
+    if (bf > 0.01) { ctx.lineWidth = 2; ctx.strokeStyle = quench ? `rgba(255,77,77,${0.4 + 0.6 * bf})` : `rgba(124,200,255,${0.15 + 0.75 * bf})`; ctx.shadowColor = quench ? col.crit : col.ice; ctx.shadowBlur = 10 * bf; ctx.stroke(); ctx.shadowBlur = 0; }
+  });
+  // CS
+  const csF = P.cs / M.flux, ipf = pl ? pl.Ip / 15 : 0;
+  mir(s => {
+    for (let i = 0; i < 6; i++) {
+      const z0 = -6.2 + i * 2.08;
+      ctx.fillStyle = '#1d242c'; ctx.fillRect(X(s > 0 ? 1.25 : -2.05), Y(z0 + 1.96), 0.8 * sc, 1.96 * sc);
+      if (csF > 0.01) { ctx.fillStyle = `rgba(124,200,255,${0.08 + 0.4 * csF})`; ctx.fillRect(X(s > 0 ? 1.25 : -2.05), Y(z0 + 1.96 * csF), 0.8 * sc, 1.96 * csF * sc); }
+      ctx.strokeStyle = P.csCharge ? col.gold : 'rgba(124,200,255,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(X(s > 0 ? 1.25 : -2.05) + .5, Y(z0 + 1.96) + .5, 0.8 * sc - 1, 1.96 * sc - 1);
+    }
+  });
+  // PF coils
+  const PF = [[3.95, 7.55, 0.95, 0.95], [8.3, 6.55, 0.7, 0.6], [11.95, 3.25, 0.65, 1.1], [11.95, -2.25, 0.65, 1.1], [8.4, -6.75, 1.1, 0.65], [4.35, -7.45, 1.6, 0.95]];
+  mir(s => PF.forEach(([r, z, w, h]) => {
+    const x0 = s > 0 ? X(r - w / 2) : X(-r - w / 2);
+    ctx.fillStyle = '#1d242c'; ctx.fillRect(x0, Y(z + h / 2), w * sc, h * sc);
+    ctx.strokeStyle = `rgba(124,200,255,${0.25 + 0.6 * clamp(ipf, 0, 1)})`; ctx.lineWidth = 1; ctx.strokeRect(x0 + .5, Y(z + h / 2) + .5, w * sc - 1, h * sc - 1);
+  }));
+  // vacuum vessel (double wall) and blanket
+  const vvO = miller(6.2, 0.1, 2.95, 1.75, 0.42, 96, 1.72, 0.42), vvI = miller(6.2, 0.1, 2.62, 1.78, 0.44, 96, 1.76, 0.44);
+  const fw = miller(6.2, 0.15, 2.22, 1.86, 0.46, 96, 2.0, 0.5);
+  mir(s => {
+    path(vvO, s); ctx.closePath(); ctx.fillStyle = '#151a20'; ctx.fill(); ctx.strokeStyle = '#3a4550'; ctx.lineWidth = 1.2; ctx.stroke();
+    path(vvI, s); ctx.closePath(); ctx.fillStyle = '#0e1216'; ctx.fill(); ctx.strokeStyle = '#3a4550'; ctx.stroke();
+  });
+  // ports: equatorial (right: NBI, left: ICRH), upper (right ECRH)
+  mir(s => {
+    ctx.fillStyle = '#151a20'; ctx.strokeStyle = '#3a4550'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.rect(X(s * 8.75) - (s < 0 ? 2.6 * sc : 0), Y(0.95), 2.6 * sc, 1.6 * sc); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.rect(X(s * 6.9) - (s < 0 ? 1.0 * sc : 0), Y(6.2), 1.0 * sc, 1.9 * sc); ctx.fill(); ctx.stroke();
+  });
+  // blanket tiles colored by first-wall temperature
+  const tw = clamp((P.Tfw - 60) / 400, 0, 1);
+  mir(s => {
+    const n = 44;
+    for (let i = 0; i < n; i++) {
+      const th0 = (i / n) * 2 * Math.PI, th1 = ((i + 0.82) / n) * 2 * Math.PI, thm = (th0 + th1) / 2;
+      if (thm > 1.27 * Math.PI && thm < 1.73 * Math.PI) continue; // divertor region
+      const pt = (th, f) => { const up = Math.sin(th) >= 0, k = up ? 1.86 : 2.0, dd = up ? 0.46 : 0.5, a = 2.22 * f; return [6.2 + a * Math.cos(th + dd * Math.sin(th)), 0.15 + k * a * Math.sin(th)]; };
+      const q = [pt(th0, 1), pt(th1, 1), pt(th1, 1.14), pt(th0, 1.14)];
+      path(q, s); ctx.closePath();
+      ctx.fillStyle = tw > 0.05 ? `rgb(${Math.round(40 + 200 * tw)},${Math.round(46 + 60 * tw)},${Math.round(54 - 20 * tw)})` : '#262e37'; ctx.fill();
+    }
+  });
+  // divertor cassette
+  const qd = d && d.qDiv ? d.qDiv : 0;
+  mir(s => {
+    const body = [[4.2, -3.55], [4.55, -3.6], [5.0, -4.45], [5.35, -4.15], [5.55, -3.9], [5.85, -4.15], [6.15, -4.65], [6.85, -3.8], [7.1, -3.9], [6.6, -5.0], [4.4, -5.0], [4.0, -4.1]];
+    path(body, s); ctx.closePath(); ctx.fillStyle = '#20272f'; ctx.fill(); ctx.strokeStyle = '#46525e'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.strokeStyle = '#7d8a96'; ctx.lineWidth = 2.5; path([[4.55, -3.6], [5.0, -4.45]], s); ctx.stroke(); path([[6.15, -4.65], [6.85, -3.8]], s); ctx.stroke();
+  });
+  // gas prefill haze / ECR layer
+  if (!pl && P.p0 > 0.05) { const a = clamp(P.p0 / 6, 0, 1) * 0.22; mir(s => { path(fw, s); ctx.closePath(); ctx.fillStyle = `rgba(179,140,255,${a})`; ctx.fill(); }); }
+  if (P.B > 0.5) {
+    const Rr = P.B / T.gyro(S) * 6.2 / 6.07; ctx.strokeStyle = 'rgba(255,200,87,0.28)'; ctx.setLineDash([3, 5]); ctx.lineWidth = 1;
+    mir(s => { ctx.beginPath(); ctx.moveTo(X(s * Rr), Y(3.6)); ctx.lineTo(X(s * Rr), Y(-3.2)); ctx.stroke(); }); ctx.setLineDash([]);
+  }
+  // ---- plasma ----
+  let geo = null;
+  if (pl) {
+    const g = d.g || T.geom(S, pl.Ip);
+    const a = g.a, k = g.k, dl = g.d;
+    const Rc = Math.min(6.2, 4.12 + a), Zc = 0.35 + pl.Z / 100;
+    const shift = clamp(0.12 * a * ((d.betaP || 0) + 0.4), 0, 0.4);
+    geo = { Rc, Zc, a, k, dl };
+    const sT = d.sT, T0 = d.T0 || 0;
+    const alive = !dis || dis.phase === 'TQ';
+    const fade = dis ? (dis.phase === 'TQ' ? 1 - dis.t / 0.004 : 0) : 1;
+    if (alive && sT) {
+      mir(s => {
+        const N = 14;
+        for (let j = N; j >= 1; j--) {
+          const rho = j / N, idx = Math.min(T.NR - 1, Math.floor(rho * T.NR - 0.5 < 0 ? 0 : rho * T.NR - 0.5));
+          const tv = sT[Math.max(0, Math.min(T.NR - 1, Math.round(rho * T.NR - 0.5)))] || 0;
+          const kk = 1 + (k - 1) * (0.65 + 0.35 * rho);
+          const pts = miller(Rc + shift * (1 - rho * rho), Zc, a * rho, kk, dl * rho, 64, kk * 1.04, dl * rho * 1.15);
+          path(pts, s); ctx.closePath();
+          ctx.fillStyle = cmap(Math.sqrt(tv / 25) * 0.95 + 0.05, (j === N ? 0.55 : 0.32) * fade); ctx.fill();
+        }
+        // flux surfaces
+        ctx.strokeStyle = `rgba(255,220,240,${0.10 * fade})`; ctx.lineWidth = 1;
+        for (let j = 2; j <= 9; j += 2) { const rho = j / 10, kk = 1 + (k - 1) * (0.65 + 0.35 * rho); path(miller(Rc + shift * (1 - rho * rho), Zc, a * rho, kk, dl * rho, 64, kk * 1.04, dl * rho * 1.15), s); ctx.closePath(); ctx.stroke(); }
+      });
+      // boundary / separatrix
+      const edgeGlow = clamp(0.35 + (d.dalpha || 0) * 0.25, 0, 1) * fade;
+      mir(s => {
+        ctx.save(); ctx.shadowColor = col.pink; ctx.shadowBlur = 14 + 30 * pl.elmFlash;
+        ctx.strokeStyle = pl.elmFlash > 0.15 ? `rgba(255,230,245,${0.6 + 0.4 * pl.elmFlash})` : `rgba(255,79,154,${edgeGlow})`;
+        ctx.lineWidth = 1.6 + 3 * pl.elmFlash + (pl.h > 0.5 ? 0.8 : 0);
+        if (g.diverted) {
+          const Rx = Rc - 1.08 * dl * a - 0.1, Zx = Zc - k * a * 1.0;
+          geo.Rx = Rx; geo.Zx = Zx;
+          ctx.beginPath();
+          for (let i = 0; i <= 40; i++) { const th = Math.PI * i / 40; const q = [Rc + a * Math.cos(th + dl * Math.sin(th)), Zc + k * a * Math.sin(th)]; i ? ctx.lineTo(X(s * q[0]), Y(q[1])) : ctx.moveTo(X(s * q[0]), Y(q[1])); }
+          ctx.bezierCurveTo(X(s * (Rc - a)), Y(Zc - 0.55 * k * a), X(s * (Rx - 0.32 * a)), Y(Zx + 0.32 * a), X(s * Rx), Y(Zx));
+          ctx.bezierCurveTo(X(s * (Rx + 0.75 * a)), Y(Zx + 0.22 * a), X(s * (Rc + a)), Y(Zc - 0.6 * k * a), X(s * (Rc + a)), Y(Zc));
+          ctx.stroke();
+          // legs to strike points
+          ctx.lineWidth = 1.4; ctx.beginPath();
+          ctx.moveTo(X(s * (Rx + 0.18)), Y(Zx + 0.22)); ctx.lineTo(X(s * 4.78), Y(-4.02));
+          ctx.moveTo(X(s * (Rx - 0.2)), Y(Zx + 0.2)); ctx.lineTo(X(s * 6.45), Y(-4.28)); ctx.stroke();
+        } else {
+          path(miller(Rc, Zc, a, k, dl, 72), s); ctx.closePath(); ctx.stroke();
+        }
+        ctx.restore();
+      });
+      // divertor radiation (detachment) and strike-point heat
+      if (g.diverted) {
+        const fr = d.fradDiv || 0;
+        mir(s => {
+          const gx = X(s * (geo.Rx + 0.2)), gy = Y((geo.Zx - 0.45 - 0.3 * (1 - fr)));
+          const rg = ctx.createRadialGradient(gx, gy, 0, gx, gy, 1.1 * sc);
+          rg.addColorStop(0, `rgba(179,140,255,${0.5 * fr})`); rg.addColorStop(1, 'rgba(179,140,255,0)');
+          ctx.fillStyle = rg; ctx.fillRect(gx - 1.2 * sc, gy - 1.2 * sc, 2.4 * sc, 2.4 * sc);
+          [[4.78, -4.02], [6.45, -4.28]].forEach(([r, z]) => {
+            const hx = X(s * r), hy = Y(z), I = clamp(qd / 15 + pl.elmFlash * 0.8, 0, 1.3);
+            const hg = ctx.createRadialGradient(hx, hy, 0, hx, hy, (0.25 + 0.35 * I) * sc);
+            hg.addColorStop(0, `rgba(255,${Math.round(240 - 120 * clamp(qd / 20, 0, 1))},${Math.round(200 - 160 * clamp(qd / 20, 0, 1))},${0.25 + 0.6 * clamp(I, 0, 1)})`); hg.addColorStop(1, 'rgba(255,120,60,0)');
+            ctx.fillStyle = hg; ctx.beginPath(); ctx.arc(hx, hy, (0.25 + 0.35 * I) * sc, 0, 7); ctx.fill();
+          });
+        });
+      }
+    }
+    // disruption visuals
+    if (dis) {
+      if (dis.phase === 'CQ' || dis.phase === 'RE') {
+        const rr = dis.phase === 'RE' ? 0.35 : clamp(pl.Ip / dis.Ip0, 0.05, 1) * a * 0.6;
+        mir(s => {
+          ctx.save(); ctx.shadowBlur = 18; ctx.shadowColor = dis.phase === 'RE' ? '#bfe6ff' : col.pink;
+          ctx.strokeStyle = dis.phase === 'RE' ? 'rgba(220,240,255,0.95)' : `rgba(255,79,154,${0.3 + 0.6 * pl.Ip / dis.Ip0})`; ctx.lineWidth = dis.phase === 'RE' ? 3 : 2;
+          ctx.beginPath(); ctx.ellipse(X(s * Rc), Y(Zc), rr * sc, rr * k * sc * (dis.phase === 'RE' ? 0.6 : 1), 0, 0, 7); ctx.stroke(); ctx.restore();
+        });
+      }
+    }
+    // heating systems
+    if (alive) {
+      const tt = performance.now() / 1000;
+      if (pl.nbi > 0.3) { // right side NBI
+        const a0 = clamp(pl.nbi / 33, 0, 1);
+        const xa = X(13.0), xb = X(Rc - 0.6 * a), za = Y(0.15), zb = Y(Zc - 0.2);
+        const lg = ctx.createLinearGradient(xa, 0, xb, 0); lg.addColorStop(0, 'rgba(63,224,191,0)'); lg.addColorStop(0.35, `rgba(63,224,191,${0.35 * a0})`); lg.addColorStop(1, 'rgba(63,224,191,0.02)');
+        ctx.fillStyle = lg; ctx.beginPath(); ctx.moveTo(xa, za - 0.3 * sc); ctx.lineTo(xb, zb - 0.08 * sc); ctx.lineTo(xb, zb + 0.08 * sc); ctx.lineTo(xa, za + 0.3 * sc); ctx.fill();
+        ctx.fillStyle = `rgba(160,255,230,${0.6 * a0})`;
+        for (let i = 0; i < 14; i++) { const f = ((tt * 1.6 + i / 14) % 1); ctx.fillRect(xa + (xb - xa) * f, za + (zb - za) * f - 1, 6, 2); }
+      }
+      if (pl.ec > 0.3) { // right upper launcher
+        const a0 = clamp(pl.ec / 20, 0, 1), Rr = P.B / T.gyro(S) * 6.2 / 6.07;
+        ctx.strokeStyle = `rgba(255,200,87,${0.25 + 0.5 * a0})`; ctx.lineWidth = 1;
+        for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.moveTo(X(7.4 + i * 0.08), Y(5.4)); ctx.lineTo(X(Rr + i * 0.05), Y(Zc + 0.8)); ctx.stroke(); }
+        ctx.fillStyle = `rgba(255,220,140,${0.5 * a0 * (d.fe || 0)})`; ctx.beginPath(); ctx.arc(X(Rr), Y(Zc + 0.8), 4 + 3 * a0, 0, 7); ctx.fill();
+      }
+      if (pl.ic > 0.3) { // left antenna
+        const a0 = clamp(pl.ic / 20, 0, 1);
+        ctx.fillStyle = '#4d3c78'; ctx.fillRect(X(-8.95), Y(1.0), 0.35 * sc, 1.6 * sc);
+        ctx.strokeStyle = `rgba(179,140,255,${0.5 * a0})`; ctx.lineWidth = 1.2;
+        for (let i = 0; i < 4; i++) { const f = ((tt * 0.9 + i / 4) % 1); ctx.globalAlpha = 1 - f; ctx.beginPath(); ctx.arc(X(-8.6), Y(0.2), (0.3 + f * 1.8) * sc, -0.6, 0.6); ctx.stroke(); }
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+  // particles (neutrons, pellets)
+  const now = performance.now() / 1000, dtv = Math.min(0.05, now - (parts.t || now)); parts.t = now;
+  if (geo && d && d.Pfus > 0.5 && !(dis && dis.phase !== 'TQ')) {
+    const n = Math.floor(d.Pfus / 90) + (Math.random() < (d.Pfus % 90) / 90 ? 1 : 0);
+    for (let i = 0; i < n; i++) { const th = Math.random() * 6.283, rr = Math.random() * 0.6 * geo.a, s = Math.random() < 0.5 ? 1 : -1, an = Math.random() * 6.283; parts.neut.push({ x: s * (geo.Rc + rr * Math.cos(th)), z: geo.Zc + geo.k * rr * Math.sin(th), vx: Math.cos(an), vz: Math.sin(an), l: 0 }); }
+  }
+  ctx.globalCompositeOperation = 'lighter';
+  parts.neut = parts.neut.filter(q => { q.l += dtv; q.x += q.vx * 9 * dtv; q.z += q.vz * 9 * dtv; const al = 1 - q.l / 0.45; if (al <= 0) return false; ctx.strokeStyle = `rgba(190,225,255,${0.32 * al})`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(X(q.x), Y(q.z)); ctx.lineTo(X(q.x - q.vx * 0.22), Y(q.z - q.vz * 0.22)); ctx.stroke(); return true; });
+  if (pl && pl.pellets.length) { pl.pellets.splice(0).slice(0, 3).forEach(() => parts.pel.push({ x: 4.0, z: geo ? geo.Zc + 0.3 : 0.5, l: 0 })); }
+  if (!pl) parts.pel = [];
+  parts.pel = parts.pel.filter(q => { q.l += dtv; q.x += 5 * dtv; const al = 1 - q.l / 0.4; if (al <= 0) return false; [1, -1].forEach(s => { ctx.fillStyle = `rgba(200,255,240,${al})`; ctx.beginPath(); ctx.arc(X(s * q.x), Y(q.z), 2 + 2 * al, 0, 7); ctx.fill(); ctx.fillStyle = `rgba(63,224,191,${0.25 * al})`; ctx.beginPath(); ctx.arc(X(s * q.x), Y(q.z), 7 * (1 - al) + 3, 0, 7); ctx.fill(); }); return true; });
+  ctx.globalCompositeOperation = 'source-over';
+  if (dis && dis.phase === 'TQ') flash = 1;
+  if (flash > 0.01) { ctx.fillStyle = `rgba(255,235,245,${0.55 * flash})`; ctx.fillRect(0, 0, W, H); flash *= 0.9; }
+  // labels
+  ctx.font = '12.5px Inter, system-ui, sans-serif'; ctx.textBaseline = 'middle';
+  const lab = (txt, r, z, lr, lz, align = 'left', c = col.mute) => {
+    ctx.strokeStyle = 'rgba(139,151,163,0.45)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(X(r), Y(z)); ctx.lineTo(X(lr), Y(lz)); ctx.stroke();
+    ctx.fillStyle = c; ctx.beginPath(); ctx.arc(X(r), Y(z), 2, 0, 7); ctx.fill();
+    ctx.textAlign = align; const tx = X(lr) + (align === 'left' ? 5 : -5);
+    ctx.lineWidth = 4; ctx.strokeStyle = '#0b0d10'; ctx.strokeText(txt, tx, Y(lz)); ctx.fillText(txt, tx, Y(lz));
+  };
+  if (W > 520) {
+    ctx.textAlign = 'center'; ctx.fillStyle = col.mute; ctx.fillText('Central solenoid', X(0), Y(6.9));
+    lab('TF coil', -8.0, 6.85, -12.9, 8.3, 'left');
+    lab('PF coil', -8.3, 6.55, -12.9, 7.5, 'left');
+    lab('ICRH antenna', -8.9, 0.6, -12.9, 6.7, 'left', pl && pl.ic > 0.3 ? col.vio : col.mute);
+    lab('Blanket', -7.9, 2.9, -12.9, 5.9, 'left');
+    lab('Vacuum vessel', -8.9, -2.0, -12.9, -5.9, 'left');
+    lab('Divertor', -5.4, -4.6, -12.9, -6.7, 'left');
+    lab('Cryostat', -13.1, -7.9, -12.9, -7.5, 'left');
+    lab('Pellet injector', -4.05, 0.5, -2.6, -8.3, 'right');
+    lab('NBI', 12.6, 0.2, 12.9, 1.7, 'right', pl && pl.nbi > 0.3 ? col.teal : col.mute);
+    lab('ECRH launcher', 7.4, 6.1, 12.9, 8.3, 'right', pl && pl.ec > 0.3 ? col.gold : col.mute);
+    if (P.B > 0.5) { const Rr = P.B / T.gyro(S) * 6.2 / 6.07; ctx.fillStyle = 'rgba(255,200,87,0.75)'; ctx.textAlign = 'center'; ctx.fillText('ECR layer', X(Rr), Y(4.45)); }
+  }
+  // overlay readout
+  $('xsRead').textContent = pl ? `Z ${fx(pl.Z, 1)} cm · R₀ ${geo ? fx(geo.Rc, 2) : '—'} m · a ${geo ? fx(geo.a, 2) : '—'} m · κ ${geo ? fx(geo.k, 2) : '—'} · V ${d.V ? fx(d.V, 0) : '—'} m³` : `B ${fx(P.B, 2)} T · p ${P.logp > 4.9 ? '1 atm' : sci(P.logp) + ' Pa'}`;
+}
+function sup(s) { const m = { '-': '⁻', '.': '·', '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹' }; return s.split('').map(c => m[c] || c).join(''); }
+function sci(logp) { const e = Math.floor(logp), m = Math.pow(10, logp - e); return `${m.toFixed(1)}×10${sup(String(e))}`; }
+
+// ---------- traces ----------
+const LANES = [
+  { n: 'Iₚ', u: 'MA', max: () => 18, s: [['Ip', '--pink'], ['IpT', '--dim', 1]] },
+  { n: 'n̄ₑ', u: '10²⁰ m⁻³', max: () => 1.5, s: [['ne', '--teal'], ['nG', '--dim', 1]] },
+  { n: 'Tₑ₀', u: 'keV', max: () => 25, s: [['T0', '--hot']] },
+  { n: 'Power', u: 'MW', max: m => Math.max(100, Math.ceil(m / 100) * 100), s: [['Pfus', '--pink'], ['Paux', '--teal'], ['Prad', '--vio']] },
+  { n: 'βN', u: '', max: () => 4, lim: 3.5, s: [['bN', '--gold']] },
+  { n: 'Dα', u: 'a.u.', max: m => Math.max(2, m), s: [['Da', '--crit']] }
+];
+let daHold = 0;
+function sample() {
+  const pl = S.pl, d = pl ? pl.d : {};
+  daHold = Math.max(daHold, pl ? (d.dalpha || 0) : 0);
+  if (S.clock - lastSample < 0.05) return;
+  lastSample = S.clock;
+  trace.push({ t: S.clock, on: !!pl, Ip: pl ? pl.Ip : 0, IpT: pl ? (pl.soft ? 0 : S.ctl.IpTarget) : null, ne: pl ? d.ne || 0 : 0, nG: pl ? d.nG : null, T0: pl ? d.T0 || 0 : 0, Pfus: pl ? d.Pfus || 0 : 0, Paux: pl ? d.Paux || 0 : 0, Prad: pl ? d.Prad || 0 : 0, bN: pl ? d.betaN || 0 : 0, Da: daHold });
+  daHold = 0;
+  if (trace.length > 20000) trace.splice(0, 2000);
+  if (pl && d.T && !pl.dis) { lawTrail.push([d.T, d.triple]); if (lawTrail.length > 400) lawTrail.shift(); }
+}
+function drawTraces() {
+  const { ctx, W, H } = fit($('tr'));
+  ctx.clearRect(0, 0, W, H);
+  const L = 74, R = 12, top = 4, bot = 20, n = LANES.length, lh = (H - top - bot) / n;
+  const t1 = S.clock, t0 = t1 - winSec;
+  const vis = trace.filter(p => p.t >= t0);
+  ctx.font = '12.5px Inter, system-ui, sans-serif'; ctx.textBaseline = 'middle';
+  LANES.forEach((ln, i) => {
+    const y0 = top + i * lh, y1 = y0 + lh - 6;
+    let m = 0; vis.forEach(p => ln.s.forEach(([k]) => { if (p[k] != null) m = Math.max(m, p[k]); }));
+    const mx = ln.max(m);
+    ctx.fillStyle = 'rgba(255,255,255,0.018)'; ctx.fillRect(L, y0, W - L - R, y1 - y0);
+    ctx.strokeStyle = col.line; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(L, y1 + .5); ctx.lineTo(W - R, y1 + .5); ctx.stroke();
+    ctx.fillStyle = col.ink; ctx.textAlign = 'left'; ctx.fillText(ln.n, 4, y0 + 10);
+    ctx.fillStyle = col.dim; ctx.fillText(ln.u, 4, y0 + 26);
+    ctx.textAlign = 'left'; ctx.fillStyle = col.dim; ctx.fillText(String(+mx.toFixed(1)), L + 4, y0 + 9); ctx.textAlign = 'right';
+    const last = vis.length ? vis[vis.length - 1] : null;
+    if (last && last.on) { ctx.fillStyle = C(ln.s[0][1]); ctx.fillText(fx(last[ln.s[0][0]], mx < 5 ? 2 : mx < 30 ? 1 : 0), L - 6, y1 - 8); }
+    if (ln.lim) { const yl = y1 - (ln.lim / mx) * (y1 - y0); ctx.strokeStyle = 'rgba(255,77,77,0.5)'; ctx.setLineDash([3, 4]); ctx.beginPath(); ctx.moveTo(L, yl); ctx.lineTo(W - R, yl); ctx.stroke(); ctx.setLineDash([]); }
+    ln.s.forEach(([k, c, dash]) => {
+      ctx.strokeStyle = C(c); ctx.lineWidth = dash ? 1 : 1.5; ctx.setLineDash(dash ? [4, 4] : []);
+      ctx.beginPath(); let pen = false;
+      const step = Math.max(1, Math.floor(vis.length / (W - L - R)));
+      for (let j = 0; j < vis.length; j += step) {
+        const p = vis[j]; let v = p[k];
+        if (k === 'Da' && step > 1) { v = 0; for (let q = j; q < Math.min(vis.length, j + step); q++) v = Math.max(v, vis[q].Da); }
+        if (v == null) { pen = false; continue; }
+        const x = L + (p.t - t0) / winSec * (W - L - R), y = y1 - clamp(v / mx, 0, 1.02) * (y1 - y0 - 2);
+        pen ? ctx.lineTo(x, y) : ctx.moveTo(x, y); pen = true;
+      }
+      ctx.stroke(); ctx.setLineDash([]);
+    });
+  });
+  ctx.fillStyle = col.dim; ctx.textAlign = 'center';
+  const tickStep = winSec <= 60 ? 10 : winSec <= 240 ? 30 : 120;
+  for (let t = Math.ceil(t0 / tickStep) * tickStep; t <= t1; t += tickStep) { if (t < 0) continue; const x = L + (t - t0) / winSec * (W - L - R); if (x < L + 14 || x > W - R - 14) continue; ctx.fillText(t + ' s', x, H - 9); }
+}
+
+// ---------- Lawson ----------
+let lawCurves = {};
+function makeLaw() {
+  const FU = T.FUELS[S.cfg.fuel], k = FU.like ? 6 : 12;
+  const out = {}; [1, 5, 10, Infinity].forEach(Q => { const pts = []; for (let lt = Math.log10(2); lt <= Math.log10(100); lt += 0.02) { const t = 10 ** lt, sv = FU.sv(t); if (sv <= 0) continue; const v = k * t * t / (sv * FU.E * 1000 * ((Q === Infinity ? 0 : 1 / Q) + FU.fc)) / 1e20; if (v < 1e4) pts.push([t, v]); } out[Q] = pts; });
+  lawCurves = out;
+}
+function drawLaw() {
+  const { ctx, W, H } = fit($('law'));
+  ctx.clearRect(0, 0, W, H);
+  const L = 44, R = 10, Tp = 8, B = 26, x0 = Math.log10(1), x1 = Math.log10(100), y0 = Math.log10(0.01), y1 = Math.log10(100);
+  const X = t => L + (Math.log10(t) - x0) / (x1 - x0) * (W - L - R), Y = v => H - B - (Math.log10(v) - y0) / (y1 - y0) * (H - B - Tp);
+  ctx.font = '12px Inter, system-ui, sans-serif'; ctx.textBaseline = 'middle';
+  ctx.strokeStyle = col.line; ctx.lineWidth = 1; ctx.fillStyle = col.dim;
+  [1, 10, 100].forEach(t => { ctx.beginPath(); ctx.moveTo(X(t), Tp); ctx.lineTo(X(t), H - B); ctx.stroke(); ctx.textAlign = t === 1 ? 'left' : t === 100 ? 'right' : 'center'; ctx.fillText(t === 10 ? 'T̄ 10 keV' : t + ' keV', X(t), H - 10); });
+  [0.01, 0.1, 1, 10, 100].forEach(v => { ctx.beginPath(); ctx.moveTo(L, Y(v)); ctx.lineTo(W - R, Y(v)); ctx.stroke(); ctx.textAlign = 'right'; ctx.fillText(v >= 1 ? String(v) : v, L - 5, Y(v)); });
+  const lc = { 1: 'rgba(139,151,163,0.5)', 5: 'rgba(139,151,163,0.7)', 10: 'rgba(255,200,87,0.8)', Infinity: 'rgba(255,79,154,0.9)' };
+  Object.entries(lawCurves).forEach(([Q, pts]) => {
+    ctx.strokeStyle = lc[Q]; ctx.lineWidth = 1.3; ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(X(p[0]), Y(p[1])) : ctx.moveTo(X(p[0]), Y(p[1]))); ctx.stroke();
+    if (!pts.length) return; const p = pts[pts.length - 1]; ctx.fillStyle = lc[Q]; ctx.textAlign = 'right';
+    ctx.lineWidth = 4; ctx.strokeStyle = '#11151a'; const lbl = Q === 'Infinity' ? 'ignition' : 'Q ' + Q; const off = { 1: 10, 5: 2, 10: -6, Infinity: -15 }[Q]; ctx.strokeText(lbl, W - R - 2, Y(p[1]) + off); ctx.fillText(lbl, W - R - 2, Y(p[1]) + off);
+  });
+  
+  lawTrail.forEach((p, i) => { if (p[0] < 1 || p[1] < 0.01) return; ctx.fillStyle = `rgba(255,79,154,${0.05 + 0.4 * i / lawTrail.length})`; ctx.fillRect(X(p[0]) - 1, Y(p[1]) - 1, 2, 2); });
+  const pl = S.pl;
+  if (pl && pl.d.T > 1 && pl.d.triple > 0.01 && !pl.dis) { const x = X(pl.d.T), y = Y(pl.d.triple); ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, 4, 0, 7); ctx.fill(); ctx.strokeStyle = col.pink; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 8, 0, 7); ctx.stroke(); }
+}
+function drawProf() {
+  const { ctx, W, H } = fit($('prof'));
+  ctx.clearRect(0, 0, W, H);
+  const L = 44, R = 44, Tp = 8, B = 22;
+  const pl = S.pl, d = pl ? pl.d : null;
+  const tmax = Math.max(10, d && d.sT ? Math.ceil(d.sT[0] / 5) * 5 : 10), nmax = 1.5;
+  const X = r => L + r * (W - L - R), YT = v => H - B - v / tmax * (H - B - Tp), YN = v => H - B - v / nmax * (H - B - Tp);
+  ctx.font = '12px Inter, system-ui, sans-serif'; ctx.textBaseline = 'middle'; ctx.strokeStyle = col.line; ctx.lineWidth = 1;
+  [0, 0.5, 1].forEach(r => { ctx.beginPath(); ctx.moveTo(X(r), Tp); ctx.lineTo(X(r), H - B); ctx.stroke(); ctx.fillStyle = col.dim; ctx.textAlign = 'center'; ctx.fillText('ρ ' + r, X(r), H - 9); });
+  ctx.textAlign = 'right'; ctx.fillStyle = col.hot; ctx.fillText(tmax + ' keV', L - 4, Tp + 4);
+  ctx.textAlign = 'left'; ctx.fillStyle = col.teal; ctx.fillText(nmax.toFixed(1), W - R + 4, Tp + 4);
+  if (!d || !d.sT) { ctx.fillStyle = col.dim; ctx.textAlign = 'center'; ctx.fillText('No plasma', W / 2, H / 2); return; }
+  const line = (arr, Yf, c) => { ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.beginPath(); arr.forEach((v, i) => { const x = X(T.RHO[i]), y = Yf(v); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.lineTo(X(1), Yf(arr[arr.length - 1] * 0.3)); ctx.stroke(); };
+  line(d.sT, YT, col.hot); line(d.sN, YN, col.teal);
+  if (pl.h > 0.6) { ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.setLineDash([3, 4]); ctx.beginPath(); ctx.moveTo(X(0.92), Tp); ctx.lineTo(X(0.92), H - B); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle = col.mute; ctx.textAlign = 'right'; ctx.fillText('pedestal', X(0.92) - 4, Tp + 18); }
+  ctx.textAlign = 'left'; ctx.fillStyle = col.hot; ctx.fillText('Tₑ', X(0.04), YT(d.sT[0]) - 10); ctx.fillStyle = col.teal; ctx.fillText('nₑ', X(0.04), YN(d.sN[0]) - 10);
+}
+
+// ---------- panels ----------
+function phaseOf() {
+  const P = S.plant, pl = S.pl;
+  if (pl) {
+    if (pl.dis) return [pl.dis.phase === 'TQ' ? 'Thermal quench' : pl.dis.phase === 'RE' ? 'Runaway beam' : 'Current quench', 'bad'];
+    if (pl.soft) return ['Ramp-down', 'burn'];
+    if (pl.age < 1.5 && pl.d.T < 0.1) return ['Burn-through', 'burn'];
+    const flat = Math.abs(pl.Ip - S.ctl.IpTarget) < 0.05 && pl.Ip > 3;
+    return [(flat ? 'Flat-top' : 'Ramp-up') + ' · ' + (pl.H ? 'H-mode' : 'L-mode'), 'burn'];
+  }
+  if (P.tfDump) return ['TF fast discharge', 'bad'];
+  if (!P.pumps && P.logp > 4) return ['Plant offline', ''];
+  if (P.logp > -4) return ['Pump-down', ''];
+  if (P.Tmag > M.Tsc - 0.2) return ['Cryogenic cool-down', ''];
+  if (P.B < 2.5) return ['TF ramp', ''];
+  if (P.cs < 200) return ['CS charging', ''];
+  if (P.prefill) return ['Prefill · ready', ''];
+  return ['Ready for prefill', ''];
+}
+function alarms() {
+  const P = S.plant, pl = S.pl, d = pl ? pl.d : {}, a = [];
+  if (pl && pl.dis) a.push(['crit', pl.dis.mit ? 'Mitigated disruption in progress' : 'Unmitigated disruption: ' + pl.dis.cause]);
+  if (P.Tmag > M.Tsc + 0.4 && P.B > 0.3) a.push(['crit', `Magnet temperature ${fx(P.Tmag, 2)} K — quench at ${M.Tq} K`]);
+  if (pl && !pl.dis) {
+    if (d.lam > 0.1) a.push(['crit', `Disruption risk ${fx(d.lam, 2)}/s — ${d.lamWhy}`]);
+    if (d.fGW > 0.92) a.push(['warn', `Density at ${fx(d.fGW * 100, 0)}% of Greenwald limit`]);
+    if (d.q95 < 2.5 && pl.Ip > 2) a.push(['warn', `q95 = ${fx(d.q95, 2)} — kink-unstable below 2`]);
+    if (d.betaN > 2.8) a.push(['warn', `βN = ${fx(d.betaN, 2)} — NTMs above 2.8, Troyon limit 3.5`]);
+    if (Math.abs(pl.Z) > 3) a.push(['warn', `Vertical displacement ${fx(pl.Z, 1)} cm`]);
+    if (d.qDiv > 10) a.push(['warn', `Divertor heat flux ${fx(d.qDiv, 1)} MW/m² — limit 10`]);
+    if (P.cs < 0.15 * M.flux && !pl.soft) a.push(['warn', `Solenoid flux ${fx(P.cs, 0)} V·s — plan ramp-down`]);
+    if (d.nbiInhibit) a.push(['warn', 'NBI inhibited: density too low (shine-through)']);
+  }
+  if (P.Tfw > T.fwLimit(S) - 80) a.push(['warn', `First wall ${fx(P.Tfw, 0)} °C (interlock ${T.fwLimit(S)} °C)`]);
+  return a;
+}
+const lastSync = { t: 0 };
+function panels() {
+  const P = S.plant, pl = S.pl, d = pl ? pl.d : {}, ctl = S.ctl;
+  $('shotNo').textContent = S.shot;
+  $('shotT').textContent = pl ? fx(pl.age, 1) + ' s' : '—';
+  $('clock').textContent = S.clock < 3600 ? Math.floor(S.clock) + ' s' : (S.clock / 3600).toFixed(2) + ' h';
+  const [ph, cls] = phaseOf(); const pe = $('phase'); pe.textContent = ph; pe.className = 'phase ' + cls;
+  const al = alarms(); const ae = $('alarm'); ae.textContent = al.length ? al.slice(0, 2).map(x => x[1]).join('  ·  ') : ''; ae.className = 'alarm' + (al.some(x => x[0] === 'crit') ? ' crit' : '');
+  // plant rows
+  const dot = (id, st) => $('d-' + id).className = 'dot ' + st;
+  dot('vac', P.logp < -5 ? 'ok' : P.pumps ? 'busy' : ''); $('r-vac').textContent = P.logp > 4.9 ? '1 atm' : sci(P.logp) + ' Pa';
+  dot('cryo', P.Tmag < M.Tsc - 0.2 ? 'ok' : P.cryo ? 'busy' : (P.Tmag < 200 ? 'bad' : '')); $('r-cryo').textContent = (P.Tmag < 20 ? fx(P.Tmag, 2) : fx(P.Tmag, 0)) + ' K';
+  dot('cool', P.coolant ? (P.Tfw > 300 ? 'bad' : 'ok') : (P.Tfw > 150 ? 'bad' : '')); $('r-cool').textContent = 'FW ' + fx(P.Tfw, 0) + ' °C';
+  dot('tf', P.tfDump ? 'bad' : P.B > 2.5 && Math.abs(P.B - P.tfTarget) < 0.01 ? 'ok' : P.B > 0.05 ? 'busy' : ''); $('r-tf').textContent = fx(P.B, 2) + ' T';
+  dot('cs', P.cs >= 200 && !pl ? 'ok' : P.csCharge ? 'busy' : pl && P.cs < 0.15 * M.flux ? 'bad' : pl ? 'ok' : ''); $('r-cs').textContent = fx(Math.max(0, P.cs), 0) + ' V·s';
+  $('csBar').style.width = clamp(P.cs / M.flux, 0, 1) * 100 + '%';
+  dot('gas', pl ? 'ok' : P.prefill ? (Math.abs(P.p0 - ctl.prefillSet) < 0.05 ? 'ok' : 'busy') : ''); $('r-gas').textContent = pl ? 'plasma' : fx(P.p0, 2) + ' mPa';
+  dot('bd', pl ? (pl.dis ? 'bad' : 'ok') : ''); $('r-bd').textContent = pl ? (pl.dis ? 'disruption' : 'plasma on') : '';
+  dot('turb', P.turbine && S.bop.gross > 1 ? 'ok' : ''); $('r-turb').textContent = fx(S.bop.gross, 0) + ' MWe';
+  ['wall', 'div', 'mag', 'vessel'].forEach(k => { const v = clamp(S.dmg[k], 0, 100); $('h-' + k).style.width = v + '%'; $('h-' + k).style.background = v > 60 ? col.crit : v > 25 ? col.warn : col.good; $('hv-' + k).textContent = fx(v, 1) + '%'; });
+  // control actuals
+  CTL.forEach(([, items]) => items.forEach(it => { if (it.act) { const el = $('a-' + it.k); if (el) el.innerHTML = it.act(S) || '&nbsp;'; } }));
+  // chips
+  const chips = [];
+  if (pl) { chips.push(['pink', pl.H ? 'H-mode' : 'L-mode']); chips.push([d.g && d.g.diverted ? 'on' : '', d.g && d.g.diverted ? 'Diverted' : 'Limited']); if (d.fradDiv > 0.8) chips.push(['on', 'Detached']); else if (d.fradDiv > 0.6) chips.push(['on', 'Partly detached']); }
+  chips.push([ctl.dms ? 'on' : '', ctl.dms ? 'DMS armed' : 'DMS off']);
+  if (S.auto) chips.push(['on', 'Autopilot']);
+  $('modeChips').innerHTML = chips.map(c => `<span class="chip ${c[0]}">${c[1]}</span>`).join('');
+  // KPIs
+  const kv = { Pfus: [d.Pfus, 0], Q: [d.Q, 2], Ip: [pl ? pl.Ip : null, 2], T0: [d.T0, 1], fGW: [d.fGW, 2], bN: [d.betaN, 2], q95: [pl && pl.Ip > 0.5 ? d.q95 : null, 2], W: [pl ? pl.W : null, 0], tau: [d.tau, 2], qd: [d.qDiv, 1], lam: [d.lam, 3], net: [S.bop.net, 0] };
+  KPI.forEach(q => {
+    const [v, dd] = kv[q.id]; const live = pl && !pl.dis || q.id === 'net';
+    $('k-' + q.id).innerHTML = (live && v != null ? fx(v, dd) : '—') + (q.u ? `<small>${q.u}</small>` : '');
+    if (q.lim) { const f = live && v != null ? clamp(q.inv ? (v / q.lim[1]) : v / q.lim[1], 0, 1) : 0; const el = $('kl-' + q.id); el.style.width = f * 100 + '%'; const bad = q.inv ? v < q.lim[0] * 1.2 : v > q.lim[0] * 0.9; el.style.background = live && v != null && bad ? (q.inv ? (v < q.lim[0] ? col.crit : col.warn) : (v > q.lim[0] ? col.crit : col.warn)) : col.good; }
+  });
+  $('k-net').style.color = S.bop.net >= 0 ? col.good : '';
+  // power flow
+  const B = S.bop, mx = Math.max(200, B.Pth, B.recirc);
+  const rows = [['Thermal', B.Pth, col.hot], ['Gross electric', B.gross, col.gold], ['Recirculating', B.recirc, col.ice], ['Net', B.net, B.net >= 0 ? col.good : col.crit]];
+  const BP = S.bopPlant; if (BP) $('bopNote').textContent = `${T.BLANKETS[S.cfg.blanket].nm}: TBR ${T.BLANKETS[S.cfg.blanket].tbr} · steam ${fx(BP.Ts + BP.c.steam - BP.c.Ts, 0)} °C · cycle η ${fx(BP.etaNow * 100, 1)}% · heat store smooths pulses. Hypothetical — ITER-class machines make no electricity.`;
+  $('flow').innerHTML = rows.map(([n, v, c]) => `<span>${n}</span><div class="bar"><i style="width:${clamp(Math.abs(v) / mx, 0, 1) * 100}%;background:${c}"></i></div><span class="rd">${fx(v, 0)} MW</span>`).join('');
+  const qe = B.recirc > 0 ? B.gross / B.recirc : 0;
+  $('tot').innerHTML = [['Q<sub>eng</sub>', fx(qe, 2)], ['Fusion energy', fx(S.energy.fus, 1) + ' GJ'], [S.cfg.fuel === 'dt' || S.cfg.fuel === 'dd' ? 'Tritium stock' : 'Tritium burnt', S.cfg.fuel === 'dt' || S.cfg.fuel === 'dd' ? fx(S.trit, S.trit < 100 ? 2 : 1) + ' g' : '—']].map(([k, v]) => `<div><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+  // log
+  if (evSeen !== S.ev.length + S.ev[0]?.t) {
+    $('log').innerHTML = S.ev.slice(-80).reverse().map(e => `<li class="${e.lvl}"><time>${fmtT(e.t)}</time><i class="d"></i><span>${esc(e.msg)}</span></li>`).join('');
+    evSeen = S.ev.length + S.ev[0]?.t;
+  }
+  // summary
+  if (S.last && sumShown !== S.last) {
+    sumShown = S.last; const L = S.last;
+    $('summary').innerHTML = `<button aria-label="Close summary" id="sumX">×</button><h4>Shot ${L.shot} · ${esc(L.kind)}</h4><dl><dt>Duration</dt><dd>${fx(L.dur, 1)} s</dd><dt>Peak fusion power</dt><dd>${fx(L.pkPfus, 0)} MW</dd><dt>Peak Q</dt><dd>${fx(L.pkQ, 2)}</dd><dt>Peak core Tₑ</dt><dd>${fx(L.pkT0, 1)} keV</dd><dt>Peak stored energy</dt><dd>${fx(L.pkW, 0)} MJ</dd><dt>Fusion energy</dt><dd>${fx(L.Efus, 2)} GJ</dd></dl>`;
+    $('summary').classList.add('show'); $('sumX').onclick = () => $('summary').classList.remove('show');
+  }
+  if (S.pl) $('summary').classList.remove('show');
+}
+let lastToastN = 0;
+function toasts() {
+  if (S.ev.length && S.ev[S.ev.length - 1] !== lastToastN) {
+    const e = S.ev[S.ev.length - 1]; lastToastN = e;
+    if (e.lvl === 'warn' || e.lvl === 'crit' || e.lvl === 'good') { const t = $('toast'); t.textContent = e.msg; t.className = 'toast show ' + e.lvl; toastT = performance.now(); }
+  }
+  if (performance.now() - toastT > 4200) $('toast').classList.remove('show');
+}
+const fmtT = t => t < 3600 ? fx(t, 1) + ' s' : (t / 3600).toFixed(2) + ' h';
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// ---------- loop ----------
+let prev = performance.now(), slow = 0;
+function frame(now) {
+  const real = Math.min(0.1, (now - prev) / 1000); prev = now;
+  if (!S.paused) {
+    const simDt = real * S.speed, h = S.speed > 10 ? 0.002 : 0.001;
+    const n = Math.round(simDt / h);
+    for (let i = 0; i < n; i++) { T.step(S, h); sample(); }
+  }
+  if (view === 'plant') drawPV(); else drawXS();
+  slow += real;
+  if (slow > 0.1) { slow = 0; panels(); drawTraces(); drawLaw(); drawProf(); toasts(); if (S.auto) syncAll(); else sliderKeys.forEach(([k, t]) => syncSlider(k, t)); syncAll(); }
+  requestAnimationFrame(frame);
+}
+
+// ---------- machine configuration ----------
+const optH = o => Object.entries(o).map(([k, v]) => `<option value="${k}">${esc(v.full || v.nm)}${v.short ? ' · ' + v.short : ''}</option>`).join('');
+$('selFuel').innerHTML = optH(T.FUELS); $('selMag').innerHTML = optH(T.MAGS); $('selBl').innerHTML = Object.entries(T.BLANKETS).map(([k, v]) => `<option value="${k}">${esc(v.nm)} · ${esc(window.Plant.COOL[v.cool].short)}</option>`).join('');
+function syncCfg() {
+  $('selFuel').value = S.cfg.fuel; $('selMag').value = S.cfg.mag; $('selBl').value = S.cfg.blanket;
+  const FU = T.FUELS[S.cfg.fuel];
+  const fr = $('s-fT') && $('s-fT').closest('.ctl'); if (fr) { fr.style.display = FU.xLab ? '' : 'none'; fr.querySelector('label').textContent = FU.xLab || ''; }
+  const tf = $('s-tfTarget'); tf.max = M.Bmax; PLANT.find(p => p.id === 'tf').slider.max = M.Bmax;
+  $('sub').textContent = `${FU.nm} · ${T.MAGS[S.cfg.mag].short} · ${T.BLANKETS[S.cfg.blanket].nm.toLowerCase()}`;
+  document.querySelector('#legendOv .legend').firstChild.textContent = 'Tₑ false colour, 0–25 keV ';
+}
+const cfgChange = (k, v) => {
+  if (S.pl) { T.ev(S, 'Configuration is locked during a discharge — end the shot first', 'warn'); syncCfg(); return; }
+  T.configure(S, { [k]: v }); makeLaw(); lawTrail = [];
+  T.ev(S, `Configuration: ${T.FUELS[S.cfg.fuel].full} · ${T.MAGS[S.cfg.mag].nm} · ${T.BLANKETS[S.cfg.blanket].nm}`, 'info');
+  if (k === 'mag') T.ev(S, `Magnets swapped — cool to ${M.Top} K and re-energise (max ${M.Bmax} T)`, 'warn');
+  syncCfg(); syncAll();
+};
+$('selFuel').onchange = e => cfgChange('fuel', e.target.value);
+$('selMag').onchange = e => cfgChange('mag', e.target.value);
+$('selBl').onchange = e => cfgChange('blanket', e.target.value);
+
+// ---------- plant overview ----------
+let view = 'xs', hover = null;
+function drawTokamak(ctx, x, y, w, h, t) {
+  const P = S.plant, pl = S.pl, d = pl ? pl.d : null;
+  const cx = x + w / 2, cy = y + h * 0.5;
+  ctx.save();
+  // cryostat
+  ctx.fillStyle = '#161c22'; ctx.strokeStyle = '#3a4550'; ctx.lineWidth = 2; ctx.beginPath(); ctx.roundRect(x, y, w, h, 18); ctx.fill(); ctx.stroke();
+  // central solenoid
+  ctx.fillStyle = `rgba(124,200,255,${0.1 + 0.4 * clamp(P.cs / M.flux, 0, 1)})`; ctx.fillRect(cx - 9, y + 30, 18, h - 60);
+  const bf = clamp(P.B / M.Bmax, 0, 1);
+  [-1, 1].forEach(sg => {
+    const ox = cx + sg * w * 0.27;
+    // TF coil D
+    ctx.beginPath(); ctx.ellipse(ox, cy, w * 0.2, h * 0.4, 0, 0, 7); ctx.strokeStyle = P.tfDump ? col.crit : `rgba(124,200,255,${0.25 + 0.7 * bf})`; ctx.lineWidth = 7; ctx.stroke();
+    // vessel
+    ctx.beginPath(); ctx.ellipse(ox, cy, w * 0.14, h * 0.3, 0, 0, 7); ctx.fillStyle = '#0e1216'; ctx.fill(); ctx.strokeStyle = '#46525e'; ctx.lineWidth = 3; ctx.stroke();
+    // blanket colour = first wall temperature
+    ctx.beginPath(); ctx.ellipse(ox, cy, w * 0.125, h * 0.28, 0, 0, 7); ctx.strokeStyle = window.Plant.tcol(P.Tfw, 0.8); ctx.lineWidth = 5; ctx.stroke();
+    if (pl && !pl.dis && d && d.T0) {
+      const I = clamp(Math.sqrt(d.T0 / 25), 0, 1);
+      const g = ctx.createRadialGradient(ox, cy, 2, ox, cy, w * 0.11);
+      g.addColorStop(0, `rgba(255,243,214,${0.4 + 0.6 * I})`); g.addColorStop(0.4, `rgba(248,119,74,${0.3 + 0.5 * I})`); g.addColorStop(1, 'rgba(142,26,107,0.15)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(ox, cy, w * 0.1 * (0.6 + 0.4 * clamp(pl.Ip / 15, 0, 1)), h * 0.22 * (0.6 + 0.4 * clamp(pl.Ip / 15, 0, 1)), 0, 0, 7); ctx.fill();
+      if (pl.elmFlash > 0.1) { ctx.strokeStyle = `rgba(255,230,245,${pl.elmFlash})`; ctx.lineWidth = 2; ctx.stroke(); }
+    }
+  });
+  if (pl && pl.dis) { ctx.fillStyle = 'rgba(255,79,154,0.15)'; ctx.fillRect(x, y, w, h); }
+  ctx.restore();
+  ctx.font = '600 12px Inter, system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#8b97a3';
+  ctx.fillText(pl ? (pl.dis ? 'DISRUPTION' : `${fx(d.Pfus || 0, 0)} MW fusion · Ip ${fx(pl.Ip, 1)} MA`) : `B ${fx(P.B, 2)} T · no plasma`, cx, y - 12);
+}
+function pvCards() {
+  const P = S.plant, pl = S.pl;
+  return [
+    { id: 'cryo', label: 'Cryoplant', value: (P.Tmag < 20 ? fx(P.Tmag, 2) : fx(P.Tmag, 0)) + ' K' + (P.cryo ? '' : ' · off'), on: P.cryo, bad: P.Tmag > M.Tsc + 0.4 && P.B > 0.3 },
+    { id: 'pumps', label: 'Vacuum pumps', value: P.logp > 4.9 ? '1 atm' : sci(P.logp) + ' Pa', on: P.pumps },
+    { id: null, label: 'Tritium plant', value: S.cfg.fuel === 'dt' || S.cfg.fuel === 'dd' ? fx(S.trit, 0) + ' g · ×' + T.BLANKETS[S.cfg.blanket].tbr : 'not needed', on: S.cfg.fuel === 'dt' },
+    { id: null, label: 'Heating systems', value: pl ? fx(pl.nbi + pl.ec + pl.ic, 0) + ' MW · draw ' + fx(S.bop.heat, 0) : 'idle', on: !!pl && pl.nbi + pl.ec + pl.ic > 1 },
+    { id: null, label: 'Recirculating', value: fx(S.bop.recirc, 0) + ' MWe', on: false }
+  ];
+}
+function drawPV() {
+  const cv = $('pv'), { ctx, W, H } = fit(cv);
+  const BP = S.bopPlant || (S.bopPlant = T.configure(S, {}) || S.bopPlant);
+  if (!BP) return;
+  BP._hover = hover;
+  window.Plant.draw(ctx, W, H, BP, { reactor: drawTokamak, reactorName: 'Tokamak — click for cross-section', cards: pvCards(), auxName: 'Plant systems', buildingName: 'Tokamak building' });
+}
+const pvc = $('pv'), tip = $('tip');
+pvc.addEventListener('mousemove', e => {
+  const r = pvc.getBoundingClientRect(), h = window.Plant.hitTest(S.bopPlant, e.clientX - r.left, e.clientY - r.top);
+  hover = h ? h.id : null; pvc.style.cursor = h ? 'pointer' : '';
+  if (h) { tip.style.display = 'block'; tip.style.left = Math.min(e.clientX - r.left + 14, r.width - 270) + 'px'; tip.style.top = (e.clientY - r.top + 14) + 'px'; tip.innerHTML = `<b>${esc(h.label)}</b><span>${esc(pvTip(h.id))}</span>`; } else tip.style.display = 'none';
+});
+pvc.addEventListener('mouseleave', () => { hover = null; tip.style.display = 'none'; });
+pvc.addEventListener('click', e => {
+  const r = pvc.getBoundingClientRect(), h = window.Plant.hitTest(S.bopPlant, e.clientX - r.left, e.clientY - r.top); if (!h) return;
+  manual();
+  if (h.id === 'reactor') { view = 'xs'; syncAll(); return; }
+  if (h.id === 'cryo' || h.id === 'pumps') { S.plant[h.id] = !S.plant[h.id]; syncAll(); return; }
+  if (h.id === 'pump') { S.plant.coolant = !S.plant.coolant; T.ev(S, S.plant.coolant ? 'Blanket coolant pumps started' : 'Blanket coolant pumps stopped', S.plant.coolant ? 'info' : 'warn'); syncAll(); return; }
+  if (h.id === 'turbine') { S.plant.turbine = S.bopPlant.tripped; S.bopPlant._manual = !S.plant.turbine; if (S.bopPlant.tripped) { const m = window.Plant.resetTurbine(S.bopPlant); if (m) T.ev(S, m, 'warn'); } else window.Plant.trip(S.bopPlant, 'manual'); syncAll(); return; }
+  const res = window.Plant.act(S.bopPlant, h.id); if (res) T.ev(S, res[0], res[1]);
+  syncAll();
+});
+function pvTip(id) {
+  const BP = S.bopPlant, P = S.plant;
+  return ({ reactor: 'Back to the poloidal cross-section', pump: `Blanket coolant ${P.coolant ? 'flowing' : 'stopped'} · ${fx(BP.flowEff * 100, 0)}%`, turbine: BP.tripped ? 'Tripped · click to reset' : `${fx(BP.rpm * 3000, 0)} rpm · click to trip`, breaker: BP.breaker ? 'On grid · click to open' : 'Open · click to arm sync', grid: BP.gridOk ? 'Click to drop the grid' : 'Click to restore the grid', fans: `${fx(BP.fans * 100, 0)}% · click to cycle`, circ: BP.circOn ? 'Running · click to stop' : 'Stopped · click to start', feed: BP.feedOn ? 'Running · click to stop' : 'Stopped · click to start', cryo: 'Click to start / stop the cryoplant', pumps: 'Click to start / stop vacuum pumping', sg: `${fx(BP.Qsg, 0)} MW into the steam cycle`, cond: `${fx(BP.Tcond, 0)} °C`, tower: `${fx(BP.Qct, 0)} MW to air` })[id] || '';
+}
+$('view').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { view = b.dataset.v; syncAll(); } });
+$('wide').onclick = () => { document.querySelector('.main').classList.toggle('wide'); syncAll(); };
+function syncView() {
+  document.querySelectorAll('#view button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === view));
+  $('xs').style.display = view === 'xs' ? '' : 'none'; $('pv').style.display = view === 'plant' ? '' : 'none';
+  $('xsFig').classList.toggle('pvmode', view === 'plant');
+  ['legendOv', 'xsRead'].forEach(id => $(id).style.display = view === 'xs' ? '' : 'none');
+  $('viewHint').textContent = view === 'plant' ? 'Click pumps, turbine, breaker, fans, grid or plant systems' : 'Poloidal cross-section, live';
+  const wide = document.querySelector('.main').classList.contains('wide'); $('wide').classList.toggle('on', wide); $('wide').setAttribute('aria-pressed', wide);
+}
+document.addEventListener('keydown', e => { if (e.target.tagName === 'SELECT') return; if (e.key === 'v' || e.key === 'V') { view = view === 'xs' ? 'plant' : 'xs'; syncAll(); } else if (e.key === 'f' || e.key === 'F') $('wide').click(); });
+
+// ---------- boot: open mid-shot at flat-top ----------
+function start(data) {
+  T.configure(S, {}); makeLaw(); syncCfg();
+  if (data && data.S && data.S.plant) { S = data.S; trace = []; }
+  else {
+    S.auto = true;
+    for (let i = 0; i < 200000; i++) { T.step(S, 0.002); sample(); if (S.pl && S.autoStep === 7 && S.pl.age > 52) break; if (!S.auto && S.clock > 60) break; }
+    S.speed = 3;
+  }
+  syncAll(); panels(); drawTraces(); drawLaw(); drawProf();
+  requestAnimationFrame(t => { prev = t; frame(t); });
+}
+window.claude?.hot?.snapshot?.(() => ({ S: Object.assign({}, S, { trace: [] }) }));
+window.claude?.hot?.ready ? window.claude.hot.ready(start) : start(window.claude?.hot?.data ?? {});
+}
+</script>
+</body>
+</html>
