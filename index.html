@@ -810,7 +810,7 @@ function miller(Rc, Zc, a, k, d, n, kl, dl) {
 }
 function drawXS() {
   const { ctx, W, H } = fit($('xs'));
-  const tb = W < 600 ? 72 : 44, bb = 24, sc = Math.min(W / 27.2, (H - tb - bb) / 17.2), ox = W / 2, oz = tb + (H - tb - bb) / 2;
+  const tb = W < 600 ? 72 : 44, bb = 24, sc = Math.max(1, Math.min(W / 27.2, (H - tb - bb) / 17.2)), ox = W / 2, oz = tb + (H - tb - bb) / 2;
   const X = r => ox + r * sc, Y = z => oz - z * sc;
   ctx.clearRect(0, 0, W, H);
   // backdrop grid
