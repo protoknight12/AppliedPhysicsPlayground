@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lunar Lander · Physics Sandbox</title>
+<meta name="description" content="3D lunar lander: Apollo-class descent engine, throttle limits, RCS attitude control, rate-of-descent mode, real lunar gravity and curvature, NASA LRO imagery.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<style>
+:root{color-scheme:dark;--p1:rgba(17,21,26,.82);--line:#232a32;--line2:#2e3740;--ink:#e8ecef;--mute:#8b97a3;--dim:#5d6873;--ok:#5be39a;--warn:#ffc857;--bad:#ff5d6c;--ice:#7cc8ff;--mono:"JetBrains Mono",ui-monospace,monospace}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:#000;color:var(--ink);font:14px/1.45 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+#gl{position:fixed;inset:0;width:100%;height:100%;display:block}
+.hud{position:fixed;inset:0;pointer-events:none}
+.hud > *{pointer-events:auto}
+.top{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:10px;padding:10px 14px;background:linear-gradient(#000c,#0000);flex-wrap:wrap}
+.top a{color:var(--mute);text-decoration:none;font-size:13px}.top a:hover{color:var(--ink)}
+.top h1{font:600 17px "Inter Tight",Inter,sans-serif;margin:0 8px 0 0}
+select,button{height:32px;background:#161b21;color:var(--ink);border:1px solid var(--line2);border-radius:8px;padding:0 10px;font:inherit;font-size:13px;cursor:pointer}
+button:hover,select:hover{border-color:#44515e}
+button:focus-visible,select:focus-visible{outline:2px solid var(--ice);outline-offset:2px}
+.panel{position:absolute;background:var(--p1);border:1px solid var(--line);border-radius:12px;padding:10px 12px;backdrop-filter:blur(6px)}
+#tele{left:14px;top:64px;width:240px}
+#right{right:14px;top:64px;width:240px}
+.row{display:flex;justify-content:space-between;gap:10px;font:12.5px var(--mono);padding:2px 0}
+.row span:first-child{color:var(--mute)}.row b{font-weight:500}
+.sec{font:500 11px var(--mono);color:var(--dim);letter-spacing:.08em;text-transform:uppercase;margin:8px 0 3px}.sec:first-child{margin-top:0}
+.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+.bar{height:6px;background:#0b0f14;border-radius:3px;overflow:hidden;margin:3px 0 4px;position:relative}.bar i{display:block;height:100%;background:var(--ice)}
+.bar s{position:absolute;top:0;bottom:0;width:1px;background:#fff8}
+canvas.inst{display:block;width:216px;height:216px;margin:2px auto 6px}
+#big{position:absolute;top:58px;left:50%;transform:translateX(-50%);display:flex;gap:26px;font:500 13px var(--mono);color:var(--mute);text-align:center;pointer-events:none}
+#big b{display:block;font:600 30px/1.1 "JetBrains Mono",monospace;color:var(--ink)}
+#call{position:absolute;top:140px;left:50%;transform:translateX(-50%);font:600 15px var(--mono);letter-spacing:.06em;pointer-events:none;text-shadow:0 0 8px #000}
+#contact{position:absolute;top:116px;left:50%;transform:translateX(-50%);font:600 12px var(--mono);padding:3px 10px;border-radius:5px;background:#3a3014;color:#7a6a3a;pointer-events:none;letter-spacing:.1em}
+#contact.lit{background:#ffc857;color:#1a1408;box-shadow:0 0 18px #ffc85799}
+.bottom{position:absolute;left:0;right:0;bottom:0;display:flex;justify-content:space-between;align-items:flex-end;gap:12px;padding:10px 14px;background:linear-gradient(#0000,#000c);flex-wrap:wrap;pointer-events:none}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{font:500 12px var(--mono);padding:4px 9px;border-radius:6px;border:1px solid var(--line2);color:var(--dim);background:#0b0f14cc}
+.chip.on{color:#0b0d10;background:var(--ice);border-color:var(--ice)}.chip.am{color:#0b0d10;background:var(--warn);border-color:var(--warn)}
+.keys{font:12px var(--mono);color:var(--mute);text-align:right}
+.keys kbd{font:inherit;color:var(--ink);border:1px solid var(--line2);border-radius:4px;padding:0 4px;background:#11151a}
+#padmark{position:absolute;pointer-events:none;font:500 11px var(--mono);color:var(--ok);transform:translate(-50%,-100%);text-align:center;white-space:nowrap;text-shadow:0 0 4px #000}
+#padmark i{display:block;width:12px;height:12px;margin:2px auto 0;border:2px solid var(--ok);transform:rotate(45deg)}
+#msg,#help{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:rgba(13,16,20,.95);border:1px solid var(--line2);border-radius:14px;padding:22px 24px;display:none}
+#msg{width:min(460px,92vw)}#help{width:min(640px,94vw);max-height:86vh;overflow:auto}
+#msg h2,#help h2{font:700 26px "Inter Tight",Inter,sans-serif;margin:0 0 6px;letter-spacing:-.02em}
+#msg p,#help p{color:var(--mute);margin:8px 0}
+.btns{display:flex;gap:8px;margin-top:14px}
+#help table{border-collapse:collapse;width:100%;font-size:13px}#help td{padding:3px 6px;border-bottom:1px solid var(--line)}
+#help td:first-child{font-family:var(--mono);color:var(--ice);white-space:nowrap}
+#loading{position:fixed;inset:0;display:grid;place-items:center;background:#000;font:500 14px var(--mono);color:var(--mute)}
+@media(max-width:900px){#right{display:none}#tele{width:200px}#big{display:none}}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="loading">Generating terrain · loading NASA LRO imagery…</div>
+<div class="hud">
+  <div class="top">
+    <a href="../">← Sandbox</a>
+    <h1>Lunar Lander</h1>
+    <select id="scn" aria-label="Scenario"></select>
+    <button id="restart">Restart</button>
+    <button id="camBtn">Camera: Chase</button>
+    <button id="helpBtn">Help (H)</button>
+  </div>
+  <div id="big"><div>ALTITUDE<b id="bAlt">—</b></div><div>V/S<b id="bVs">—</b></div><div>H/S<b id="bHs">—</b></div></div>
+  <div id="contact">CONTACT LIGHT</div>
+  <div id="call"></div>
+  <div class="panel" id="tele"></div>
+  <div class="panel" id="right">
+    <div class="sec">Cross pointers · horizontal velocity</div>
+    <canvas class="inst" id="xp" width="432" height="432"></canvas>
+    <div class="sec">Landing radar map</div>
+    <canvas class="inst" id="map" width="432" height="432"></canvas>
+  </div>
+  <div id="padmark"><span id="padtxt"></span><i></i></div>
+  <div class="bottom">
+    <div class="chips" id="chips"></div>
+    <div class="keys"><kbd>↑</kbd><kbd>↓</kbd> throttle · <kbd>Z</kbd> full · <kbd>X</kbd> cut · <kbd>V</kbd> hover · <kbd>W</kbd><kbd>S</kbd> pitch · <kbd>A</kbd><kbd>D</kbd> roll · <kbd>Q</kbd><kbd>E</kbd> yaw · <kbd>Shift</kbd> fine<br><kbd>R</kbd> rate-of-descent mode · <kbd>T</kbd> attitude hold · <kbd>G</kbd> auto-level · <kbd>C</kbd> camera · <kbd>Space</kbd> pause</div>
+  </div>
+  <div id="msg"></div>
+  <div id="help">
+    <h2>Flying the lander</h2>
+    <p>An Apollo-class lunar module: about 7 t dry, one throttleable descent engine (45 kN, Isp 311 s, minimum 10 % throttle) and RCS jets for attitude. Gravity is the Moon's 1.62 m/s², there's no air, and the surface curves away at the real lunar radius — from high up the horizon is tens of kilometres away.</p>
+    <table>
+      <tr><td>↑ / ↓</td><td>Throttle up / down (in ROD mode: command descent rate ±0.3 m/s per press)</td></tr>
+      <tr><td>Z / X / V</td><td>Full throttle / engine cut-off / set hover throttle</td></tr>
+      <tr><td>W / S</td><td>Pitch forward / back (tilt the thrust to move or brake)</td></tr>
+      <tr><td>A / D</td><td>Roll left / right</td></tr>
+      <tr><td>Q / E</td><td>Yaw left / right</td></tr>
+      <tr><td>Shift (hold)</td><td>Fine attitude control</td></tr>
+      <tr><td>R</td><td>Rate-of-descent mode (Apollo P66): computer flies the throttle to hold the descent rate you set</td></tr>
+      <tr><td>T</td><td>Attitude hold — RCS kills rotation when you let go</td></tr>
+      <tr><td>G</td><td>Auto-level — rotate upright, keep heading</td></tr>
+      <tr><td>C</td><td>Cameras: chase, window, free orbit (drag), pad camera</td></tr>
+      <tr><td>Space</td><td>Pause</td></tr>
+    </table>
+    <p><b>Touchdown limits:</b> vertical ≤ 2 m/s, horizontal ≤ 1.2 m/s, tilt ≤ 10°, ground slope ≤ 10°. Up to 3 m/s / 2 m/s / 15° is a hard landing; beyond that, the gear fails. The <b>contact light</b> comes on when the 1.7 m probes under the footpads touch — cut the engine then, like the real crews did.</p>
+    <p>Fuel callouts are hover-time remaining: “60 seconds”, “30 seconds”. Tilting costs vertical thrust: lift = thrust × cos(tilt).</p>
+    <p>Imagery: Moon from NASA's CGI Moon Kit (LRO LROC colour mosaic, Mare Tranquillitatis region on the horizon); Earth from NASA Blue Marble. Near terrain is procedurally generated with a realistic crater size distribution.</p>
+    <div class="btns"><button id="helpClose">Close</button></div>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const G = 1.62, G0 = 9.80665, ISP = 311, TMAX = 45040, DRY = 6800, RCS0 = 120;
+const R_MOON = 1737400;
+const A_ROT = 8 * Math.PI / 180;
+const D2R = Math.PI / 180, R2D = 180 / Math.PI;
+const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
+
+// ---------- seeded noise ----------
+function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function hash2(x, y) { let h = Math.imul(x, 374761393) ^ Math.imul(y, 668265263); h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
+function vn2(x, y) { const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi, u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf); const a = hash2(xi, yi), b = hash2(xi + 1, yi), c = hash2(xi, yi + 1), d = hash2(xi + 1, yi + 1); return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v; }
+function fbm(x, y, oct = 4) { let f = 0, a = 0.5, s = 1; for (let i = 0; i < oct; i++) { f += a * (vn2(x * s, y * s) - 0.5); a *= 0.5; s *= 2.03; } return f; }
+const ss = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+
+// ---------- terrain ----------
+const SIZE = 6000, SEG = 480, CELL = SIZE / SEG, NV = SEG + 1, HALF = SIZE / 2;
+const PADS = {
+  A: { name: 'Pad A · Tranquility', x: 0, z: 0, r: 15, flat: 40 },
+  B: { name: 'Pad B · Boulder field', x: 950, z: -780, r: 7, flat: 14 },
+};
+const H = new Float32Array(NV * NV), ALB = new Float32Array(NV * NV);
+const curv = (x, z) => (x * x + z * z) / (2 * R_MOON);
+function genTerrain() {
+  const R = rng(1969);
+  for (let j = 0; j < NV; j++) for (let i = 0; i < NV; i++) {
+    const x = -HALF + i * CELL, z = -HALF + j * CELL, k = j * NV + i;
+    H[k] = 70 * fbm(x / 2200 + 3.1, z / 2200 + 7.7, 4) + 9 * fbm(x / 380, z / 380, 4) + 1.6 * fbm(x / 60 + 9, z / 60 + 1, 3);
+    ALB[k] = 0.9 + 0.25 * fbm(x / 900 + 50, z / 900, 3);
+  }
+  const stamp = (cx, cz, r, age) => {
+    const D = 0.2 * r * age, rim = 0.045 * r * age, ext = 2.2 * r, c3 = Math.pow(2.2, -3);
+    const i0 = Math.max(0, Math.floor((cx - ext + HALF) / CELL)), i1 = Math.min(SEG, Math.ceil((cx + ext + HALF) / CELL));
+    const j0 = Math.max(0, Math.floor((cz - ext + HALF) / CELL)), j1 = Math.min(SEG, Math.ceil((cz + ext + HALF) / CELL));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const x = -HALF + i * CELL, z = -HALF + j * CELL, s = Math.hypot(x - cx, z - cz) / r;
+      if (s >= 2.2) continue;
+      const k = j * NV + i;
+      if (s < 1) H[k] += D * (s * s - 1) + rim; else H[k] += rim * (Math.pow(s, -3) - c3) / (1 - c3);
+      if (age > 0.75) ALB[k] += (s > 0.8 && s < 1.8 ? 0.35 : s < 0.8 ? 0.1 : 0) * (age - 0.75) * 4 * (s > 1 ? (2.2 - s) / 1.2 : 1);
+    }
+  };
+  // size–frequency: N(>r) ∝ r^-2
+  for (let n = 0; n < 1400; n++) {
+    const r = Math.min(520, 16 / Math.sqrt(R() + 1e-4)), cx = (R() - 0.5) * SIZE * 1.1, cz = (R() - 0.5) * SIZE * 1.1;
+    if (Math.hypot(cx - PADS.A.x, cz - PADS.A.z) < r * 2.2 + 70) continue;
+    stamp(cx, cz, r, 0.35 + 0.65 * R());
+  }
+  // boulder field around pad B: dense fresh small craters
+  for (let n = 0; n < 380; n++) {
+    const a = R() * 6.283, d = 30 + Math.sqrt(R()) * 520, r = 13 + R() * R() * 55;
+    stamp(PADS.B.x + Math.cos(a) * d, PADS.B.z + Math.sin(a) * d, r, 0.6 + 0.4 * R());
+  }
+  // flatten pads, edge-fade relief, curvature
+  for (const P of Object.values(PADS)) {
+    const k0 = Math.round((P.z + HALF) / CELL) * NV + Math.round((P.x + HALF) / CELL); P.h = H[k0];
+    const ext = P.flat * 2.2;
+    for (let j = 0; j < NV; j++) for (let i = 0; i < NV; i++) {
+      const x = -HALF + i * CELL, z = -HALF + j * CELL, d = Math.hypot(x - P.x, z - P.z);
+      if (d > ext) continue;
+      const w = 1 - ss(P.flat, ext, d), k = j * NV + i; H[k] += (P.h - H[k]) * w;
+    }
+  }
+  for (let j = 0; j < NV; j++) for (let i = 0; i < NV; i++) {
+    const x = -HALF + i * CELL, z = -HALF + j * CELL, k = j * NV + i;
+    const e = 1 - ss(2450, 2980, Math.max(Math.abs(x), Math.abs(z)));
+    H[k] = H[k] * e - curv(x, z);
+  }
+  for (const P of Object.values(PADS)) P.h = heightAt(P.x, P.z);
+}
+function heightAt(x, z) {
+  const fx = (x + HALF) / CELL, fz = (z + HALF) / CELL;
+  if (fx < 0 || fz < 0 || fx >= SEG || fz >= SEG) return -curv(x, z);
+  const i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j, k = j * NV + i;
+  return (H[k] * (1 - u) + H[k + 1] * u) * (1 - v) + (H[k + NV] * (1 - u) + H[k + NV + 1] * u) * v;
+}
+function normalAt(x, z) { const e = 2; return V3(heightAt(x - e, z) - heightAt(x + e, z), 2 * e, heightAt(x, z - e) - heightAt(x, z + e)).normalize(); }
+
+// ---------- renderer ----------
+const canvas = document.getElementById('gl');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true });
+renderer.setPixelRatio(Math.min(2, devicePixelRatio));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 6e5);
+const controls = new OrbitControls(camera, canvas); controls.enabled = false; controls.enableDamping = true; controls.maxPolarAngle = Math.PI * 0.49;
+const sunDir = V3(0.28, 0.18, 0.94).normalize();          // ~10° elevation, behind the approach (like Apollo 11)
+const sun = new THREE.DirectionalLight(0xffffff, 3.4);
+sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -45, right: 45, top: 45, bottom: -45, near: 1, far: 400 });
+sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.6;
+scene.add(sun, sun.target);
+scene.add(new THREE.AmbientLight(0x8090a0, 0.07));
+scene.add(new THREE.HemisphereLight(0x000000, 0x9a9a95, 0.18));   // light bounced off the regolith
+
+// stars (faint: sunlit ground washes them out)
+{
+  const n = 3000, pos = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { const u = Math.random() * 2 - 1, t = Math.random() * 6.283, r = Math.sqrt(1 - u * u); pos.set([r * Math.cos(t) * 4e5, Math.abs(u) * 4e5, r * Math.sin(t) * 4e5], i * 3); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  scene.add(new THREE.Points(g, new THREE.PointsMaterial({ size: 1.2, sizeAttenuation: false, color: 0x8899aa, transparent: true, opacity: 0.6, depthWrite: false })));
+}
+
+function grainTexture() {
+  const S = 512, cv = document.createElement('canvas'); cv.width = cv.height = S; const c = cv.getContext('2d'), img = c.createImageData(S, S);
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    let v = 0.72 + 0.18 * (vn2(x / 9, y / 9) - 0.5) + 0.12 * (vn2(x / 2.5 + 40, y / 2.5) - 0.5) + 0.1 * (Math.random() - 0.5);
+    const k = (y * S + x) * 4, b = Math.max(0, Math.min(255, v * 255)); img.data[k] = b; img.data[k + 1] = b; img.data[k + 2] = b * 0.98; img.data[k + 3] = 255;
+  }
+  // tiny craterlets
+  c.putImageData(img, 0, 0);
+  for (let i = 0; i < 90; i++) { const x = Math.random() * S, y = Math.random() * S, r = 2 + Math.random() ** 2 * 14; const g = c.createRadialGradient(x - r * .2, y - r * .2, 0, x, y, r); g.addColorStop(0, 'rgba(0,0,0,.22)'); g.addColorStop(0.75, 'rgba(0,0,0,.08)'); g.addColorStop(0.9, 'rgba(255,255,255,.12)'); g.addColorStop(1, 'rgba(255,255,255,0)'); c.fillStyle = g; c.fillRect(x - r, y - r, r * 2, r * 2); }
+  const t = new THREE.CanvasTexture(cv); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t;
+}
+
+let terrain, farMesh;
+function buildTerrain(moonTex) {
+  const geo = new THREE.PlaneGeometry(SIZE, SIZE, SEG, SEG); geo.rotateX(-Math.PI / 2);
+  const pos = geo.attributes.position, col = new Float32Array(pos.count * 3);
+  for (let k = 0; k < pos.count; k++) { pos.setY(k, H[k]); const a = Math.max(0.6, Math.min(1.6, ALB[k])); col[k * 3] = 0.56 * a; col[k * 3 + 1] = 0.55 * a; col[k * 3 + 2] = 0.53 * a; }
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.computeVertexNormals();
+  const grain = grainTexture(); grain.repeat.set(SIZE / 14, SIZE / 14);
+  const mat = new THREE.MeshStandardMaterial({ map: grain, bumpMap: grain, bumpScale: 1.2, vertexColors: true, roughness: 1, metalness: 0 });
+  terrain = new THREE.Mesh(geo, mat); terrain.receiveShadow = true; scene.add(terrain);
+  // far field: NASA LRO mosaic (Mare Tranquillitatis) out to the curved horizon
+  const FS = 240000, FSEG = 160, fg = new THREE.PlaneGeometry(FS, FS, FSEG, FSEG); fg.rotateX(-Math.PI / 2);
+  const fp = fg.attributes.position;
+  for (let k = 0; k < fp.count; k++) {
+    const x = fp.getX(k), z = fp.getZ(k), d = Math.max(Math.abs(x), Math.abs(z));
+    fp.setY(k, d < 2999 ? -160 : -curv(x, z) + 260 * fbm(x / 14000 + 2, z / 14000 + 5, 4) * ss(3000, 12000, d));
+  }
+  fg.computeVertexNormals();
+  if (moonTex) { moonTex.repeat.set(FS / 487000, FS / 487000); moonTex.offset.set((1 - FS / 487000) / 2, (1 - FS / 487000) / 2); }
+  farMesh = new THREE.Mesh(fg, new THREE.MeshStandardMaterial({ map: moonTex || null, color: moonTex ? 0xffffff : 0x8a8a86, roughness: 1, metalness: 0 }));
+  scene.add(farMesh);
+  // pads: beacons and a ring painted on the regolith
+  for (const P of Object.values(PADS)) {
+    const pts = []; for (let i = 0; i <= 64; i++) { const a = i / 64 * 6.283, x = P.x + Math.cos(a) * P.r, z = P.z + Math.sin(a) * P.r; pts.push(V3(x, heightAt(x, z) + 0.08, z)); }
+    scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x5be39a, transparent: true, opacity: 0.7 })));
+    P.beacons = [];
+    for (let i = 0; i < 8; i++) { const a = i / 8 * 6.283, x = P.x + Math.cos(a) * P.r, z = P.z + Math.sin(a) * P.r; const b = new THREE.Mesh(new THREE.SphereGeometry(0.25, 8, 8), new THREE.MeshBasicMaterial({ color: 0x5be39a })); b.position.set(x, heightAt(x, z) + 0.3, z); scene.add(b); P.beacons.push(b); }
+  }
+}
+
+// Earth in the lunar sky (NASA Blue Marble), real angular size ~1.9°
+const earth = new THREE.Mesh(new THREE.SphereGeometry(6371 / 384400 * 3e5, 64, 32), new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0 }));
+earth.position.copy(V3(-0.25, 0.72, -0.65).normalize().multiplyScalar(3e5));
+earth.rotation.set(0.4, 2.2, 0.1);
+scene.add(earth);
+
+// ---------- lander model ----------
+const lander = new THREE.Group(); scene.add(lander);
+const parts = [];
+{
+  const gold = new THREE.MeshStandardMaterial({ color: 0xd4a640, roughness: 0.32, metalness: 1 });
+  const goldDark = new THREE.MeshStandardMaterial({ color: 0x8a6420, roughness: 0.5, metalness: 1 });
+  const black = new THREE.MeshStandardMaterial({ color: 0x1a1a1c, roughness: 0.7, metalness: 0.2 });
+  const silver = new THREE.MeshStandardMaterial({ color: 0xb8bcc0, roughness: 0.45, metalness: 0.8 });
+  const grey = new THREE.MeshStandardMaterial({ color: 0x8b8f93, roughness: 0.6, metalness: 0.3 });
+  const add = (m, part = true) => { m.castShadow = true; m.receiveShadow = true; lander.add(m); if (part) parts.push(m); return m; };
+  const desc = add(new THREE.Mesh(new THREE.CylinderGeometry(2.1, 2.1, 1.7, 8), gold)); desc.position.y = -0.6; desc.rotation.y = Math.PI / 8;
+  for (const y of [-1.42, 0.22]) { const b = add(new THREE.Mesh(new THREE.CylinderGeometry(2.13, 2.13, 0.08, 8), goldDark), false); b.position.y = y; b.rotation.y = Math.PI / 8; }
+  const bell = add(new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.85, 1.05, 24, 1, true), black)); bell.position.y = -1.95;
+  bell.material = bell.material.clone(); bell.material.side = THREE.DoubleSide;
+  const asc = add(new THREE.Mesh(new THREE.BoxGeometry(2.7, 1.9, 2.3), silver)); asc.position.set(0, 1.25, 0.15);
+  const cab = add(new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.15, 1.6, 10), silver)); cab.rotation.z = Math.PI / 2; cab.position.set(0, 1.45, -0.6);
+  const face = add(new THREE.Mesh(new THREE.BoxGeometry(2.0, 1.4, 0.3), grey)); face.position.set(0, 1.35, -1.55);
+  for (const s of [-1, 1]) { const w = add(new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.45, 0.05), black), false); w.position.set(s * 0.55, 1.6, -1.72); w.rotation.y = s * 0.35; }
+  const hatch = add(new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.45, 16), grey)); hatch.position.set(0, 2.4, -0.1);
+  const aft = add(new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.2, 0.9), gold)); aft.position.set(0, 1.2, 1.55);
+  const dish = add(new THREE.Mesh(new THREE.SphereGeometry(0.45, 16, 8, 0, Math.PI * 2, 0, 1.2), silver)); dish.position.set(0.9, 2.55, 0.8); dish.rotation.x = -0.6;
+  const mast = add(new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.8, 6), silver), false); mast.position.set(0.9, 2.25, 0.8);
+  for (const [x, z] of [[1.55, -1.3], [-1.55, -1.3], [1.55, 1.3], [-1.55, 1.3]]) {
+    const q = add(new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.28, 0.28), grey), false); q.position.set(x * 1.05, 1.75, z * 1.05);
+    for (const d of [[0, 1, 0], [0, -1, 0], [Math.sign(x), 0, 0], [0, 0, Math.sign(z)]]) { const n = add(new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.18, 6, 1, true), black), false); n.position.set(x * 1.05 + d[0] * .2, 1.75 + d[1] * .2, z * 1.05 + d[2] * .2); n.quaternion.setFromUnitVectors(V3(0, -1, 0), V3(...d)); }
+  }
+  // legs: cardinal, footpads at r = 3.4 m, pad bottom y = -3.0
+  const strut = (a, b, r, m) => { const d = b.clone().sub(a), L = d.length(); const c = add(new THREE.Mesh(new THREE.CylinderGeometry(r, r, L, 8), m), false); c.position.copy(a).add(b).multiplyScalar(0.5); c.quaternion.setFromUnitVectors(V3(0, 1, 0), d.normalize()); return c; };
+  for (let i = 0; i < 4; i++) {
+    const a = i * Math.PI / 2, dx = Math.sin(a), dz = Math.cos(a), px = V3(-dz, 0, dx);
+    const top = V3(dx * 1.9, 0.0, dz * 1.9), knee = V3(dx * 3.0, -1.4, dz * 3.0), foot = V3(dx * 3.4, -2.85, dz * 3.4);
+    strut(top, knee, 0.09, silver); strut(knee, foot, 0.07, silver);
+    strut(V3(dx * 1.9, -1.3, dz * 1.9).addScaledVector(px, 0.9), knee, 0.04, gold); strut(V3(dx * 1.9, -1.3, dz * 1.9).addScaledVector(px, -0.9), knee, 0.04, gold);
+    const pad = add(new THREE.Mesh(new THREE.CylinderGeometry(0.47, 0.38, 0.16, 16), silver), false); pad.position.set(dx * 3.4, -2.92, dz * 3.4);
+    if (i !== 2) strut(V3(dx * 3.4, -3.0, dz * 3.4), V3(dx * 3.4, -4.7, dz * 3.4), 0.015, black); // contact probes (not on the ladder leg)
+  }
+  // ladder on the front (-Z) leg
+  for (let k = 0; k < 7; k++) { const r = add(new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.04, 0.04), silver), false); r.position.set(0, -0.2 - k * 0.36, -2.35 - k * 0.12); }
+}
+const FEET = [0, 1, 2, 3].map(i => { const a = i * Math.PI / 2; return V3(Math.sin(a) * 3.4, -3.0, Math.cos(a) * 3.4); });
+const BODYPTS = [V3(0, -2.48, 0), V3(2.1, -1.45, 0), V3(-2.1, -1.45, 0), V3(0, -1.45, 2.1), V3(0, -1.45, -2.1), V3(0, 2.6, 0), V3(1.4, 1.9, 0), V3(-1.4, 1.9, 0)];
+// plume (barely visible in vacuum) + glow
+const plume = new THREE.Mesh((() => { const g = new THREE.ConeGeometry(1.6, 9, 24, 1, true); g.translate(0, -4.5, 0); return g; })(), new THREE.MeshBasicMaterial({ color: 0xb8d0ff, transparent: true, opacity: 0.045, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+plume.position.y = -2.45; lander.add(plume);
+const glow = new THREE.PointLight(0xc8dcff, 0, 30, 2); glow.position.y = -3; lander.add(glow);
+// RCS puffs
+const puffMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false });
+const puffs = [];
+for (const [x, z] of [[1.63, -1.37], [-1.63, -1.37], [1.63, 1.37], [-1.63, 1.37]]) for (const d of [1, -1]) {
+  const g = new THREE.ConeGeometry(0.1, 0.8, 8, 1, true); g.translate(0, -0.4, 0);
+  const m = new THREE.Mesh(g, puffMat); m.position.set(x, 1.75 + d * 0.25, z); m.quaternion.setFromUnitVectors(V3(0, -1, 0), V3(0, d, 0)); m.visible = false; lander.add(m);
+  puffs.push({ m, x, z, d });
+}
+
+// dust: ballistic sheets (no air → no billowing)
+const DUSTN = 4000, dPos = new Float32Array(DUSTN * 3), dVel = new Float32Array(DUSTN * 3), dLife = new Float32Array(DUSTN);
+const dustGeo = new THREE.BufferGeometry(); dustGeo.setAttribute('position', new THREE.BufferAttribute(dPos, 3));
+const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({ color: 0xb5b2aa, size: 0.35, transparent: true, opacity: 0.55, depthWrite: false }));
+dust.frustumCulled = false; scene.add(dust);
+let dustHead = 0;
+function spawnDust(x, y, z, n, speed) {
+  for (let i = 0; i < n; i++) {
+    const k = dustHead = (dustHead + 1) % DUSTN, a = Math.random() * 6.283, s = speed * (0.5 + Math.random());
+    dPos[k * 3] = x + Math.cos(a) * 1.5; dPos[k * 3 + 1] = y + 0.1; dPos[k * 3 + 2] = z + Math.sin(a) * 1.5;
+    dVel[k * 3] = Math.cos(a) * s; dVel[k * 3 + 1] = Math.random() * s * 0.08; dVel[k * 3 + 2] = Math.sin(a) * s; dLife[k] = 1 + Math.random() * 2;
+  }
+}
+function updateDust(dt) {
+  for (let k = 0; k < DUSTN; k++) {
+    if (dLife[k] <= 0) { dPos[k * 3 + 1] = -1e6; continue; }
+    dLife[k] -= dt; dVel[k * 3 + 1] -= G * dt;
+    dPos[k * 3] += dVel[k * 3] * dt; dPos[k * 3 + 1] += dVel[k * 3 + 1] * dt; dPos[k * 3 + 2] += dVel[k * 3 + 2] * dt;
+    if (dPos[k * 3 + 1] < heightAt(dPos[k * 3], dPos[k * 3 + 2])) dLife[k] = 0;
+  }
+  dustGeo.attributes.position.needsUpdate = true;
+}
+// debris (crash)
+const debris = [];
+const flash = new THREE.PointLight(0xffaa66, 0, 200, 1.5); scene.add(flash);
+
+// ---------- scenarios ----------
+const pitchQ = (deg, yawDeg = 0) => new THREE.Quaternion().setFromEuler(new THREE.Euler(deg * D2R, yawDeg * D2R, 0, 'YXZ'));
+const SCN = [
+  { name: 'Hover training · 150 m above Pad A', pad: 'A', pos: [70, 150, 110], vel: [0, -1, 0], att: [0, 0], fuel: 1300, thr: 'hover' },
+  { name: 'Apollo approach · “high gate” 1.5 km', pad: 'A', pos: [40, 1500, 2300], vel: [0, -24, -58], att: [35, 0], fuel: 980, thr: 0.58 },
+  { name: 'Boulder field · small pad, rough ground', pad: 'B', pos: [PADS.B.x + 320, 420, PADS.B.z + 460], vel: [-5, -8, -8], att: [-8, -35], fuel: 700, thr: 'hover' },
+  { name: 'Free landing · find a safe spot', pad: null, pos: [-1500, 650, 900], vel: [9, -14, -12], att: [0, -40], fuel: 720, thr: 'hover' },
+];
+const sel = document.getElementById('scn'); SCN.forEach((s, i) => sel.add(new Option(s.name, i)));
+
+const S = { p: V3(), v: V3(), q: new THREE.Quaternion(), w: V3(), fuel: 0, rcs: RCS0, thrCmd: 0, thr: 0, t: 0, mode: 'fly', paused: false, rateHold: true, level: false, rod: false, rodCmd: -1, cam: 0, pad: null, calls: new Set() };
+function loadScenario(i) {
+  const s = SCN[i]; S.scn = s; S.pad = s.pad ? PADS[s.pad] : null;
+  S.p.set(s.pos[0], 0, s.pos[2]); S.p.y = heightAt(S.p.x, S.p.z) + s.pos[1];
+  S.v.set(...s.vel); S.q.copy(pitchQ(...s.att)); S.w.set(0, 0, 0);
+  S.fuel = s.fuel; S.rcs = RCS0; S.t = 0; S.mode = 'fly'; S.rod = false; S.level = false; S.rateHold = true; S.calls.clear();
+  const m = DRY + S.fuel; S.thrCmd = S.thr = s.thr === 'hover' ? m * G / TMAX : s.thr;
+  lander.visible = true; parts.forEach(p => p.visible = true);
+  debris.forEach(d => scene.remove(d.m)); debris.length = 0; flash.intensity = 0; dLife.fill(0);
+  document.getElementById('msg').style.display = 'none';
+  setCam(S.cam); camSmooth = null;
+}
+
+// ---------- input ----------
+const keys = new Set();
+addEventListener('keydown', e => {
+  if (e.target.tagName === 'SELECT') return;
+  keys.add(e.code);
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
+  if (e.repeat) return;
+  switch (e.code) {
+    case 'Space': S.paused = !S.paused; break;
+    case 'KeyZ': S.rod = false; S.thrCmd = 1; break;
+    case 'KeyX': S.rod = false; S.thrCmd = 0; break;
+    case 'KeyV': S.rod = false; S.thrCmd = hoverThrottle(); break;
+    case 'KeyR': S.rod = !S.rod; if (S.rod) S.rodCmd = Math.max(-15, Math.min(0, Math.round(S.v.y / 0.3) * 0.3)); break;
+    case 'ArrowUp': if (S.rod) S.rodCmd = Math.min(3, S.rodCmd + 0.3); break;
+    case 'ArrowDown': if (S.rod) S.rodCmd = Math.max(-30, S.rodCmd - 0.3); break;
+    case 'KeyT': S.rateHold = !S.rateHold; break;
+    case 'KeyG': S.level = !S.level; break;
+    case 'KeyC': setCam((S.cam + 1) % 4); break;
+    case 'KeyH': toggleHelp(); break;
+    case 'Enter': if (S.mode !== 'fly') loadScenario(+sel.value); break;
+  }
+});
+addEventListener('keyup', e => keys.delete(e.code));
+addEventListener('blur', () => keys.clear());
+const CAMS = ['Chase', 'Window', 'Free orbit', 'Pad camera'];
+function setCam(i) {
+  S.cam = i; document.getElementById('camBtn').textContent = 'Camera: ' + CAMS[i];
+  controls.enabled = i === 2; camSmooth = null; camera.fov = i === 3 ? 35 : i === 1 ? 65 : 55; camera.updateProjectionMatrix();
+  if (i === 2) { controls.target.copy(S.p); camera.position.copy(S.p).add(V3(18, 8, 22)); camera.up.set(0, 1, 0); }
+}
+document.getElementById('camBtn').onclick = () => setCam((S.cam + 1) % 4);
+document.getElementById('restart').onclick = () => loadScenario(+sel.value);
+sel.onchange = () => { loadScenario(+sel.value); sel.blur(); };
+const help = document.getElementById('help');
+function toggleHelp() { help.style.display = help.style.display === 'block' ? 'none' : 'block'; }
+document.getElementById('helpBtn').onclick = toggleHelp; document.getElementById('helpClose').onclick = toggleHelp;
+
+// ---------- physics ----------
+const up = () => V3(0, 1, 0).applyQuaternion(S.q);
+function hoverThrottle() { const c = Math.max(0.2, up().y); return Math.min(1, (DRY + S.fuel + S.rcs) * G / (TMAX * c)); }
+function agl() { let m = Infinity; for (const f of FEET) { const w = f.clone().applyQuaternion(S.q).add(S.p); m = Math.min(m, w.y - heightAt(w.x, w.z)); } return m; }
+function step(dt) {
+  const k = c => keys.has(c) ? 1 : 0, fine = keys.has('ShiftLeft') || keys.has('ShiftRight');
+  const mass = DRY + S.fuel + S.rcs;
+  if (S.mode === 'fly') {
+    // throttle
+    if (S.rod) {
+      const c = Math.max(0.2, up().y), aReq = G + (S.rodCmd - S.v.y) * 1.2;
+      S.thrCmd = Math.max(0.1, Math.min(1, mass * aReq / (TMAX * c)));
+    } else {
+      const d = (k('ArrowUp') - k('ArrowDown')) * 0.35 * dt;
+      if (d) S.thrCmd = Math.max(d > 0 && S.thrCmd < 0.1 ? 0.1 : 0, Math.min(1, S.thrCmd + d));
+      if (S.thrCmd > 0 && S.thrCmd < 0.1) S.thrCmd = d < 0 ? 0 : 0.1;
+    }
+    S.thr += (S.thrCmd - S.thr) * Math.min(1, dt / 0.25);
+    if (S.fuel <= 0) S.thr = S.thrCmd = 0;
+    // attitude: rate command + hold / auto-level
+    const rot = V3(k('KeyS') - k('KeyW'), k('KeyQ') - k('KeyE'), k('KeyA') - k('KeyD'));
+    let alpha = V3(); const aMax = A_ROT * (fine ? 0.25 : 1);
+    if (rot.lengthSq()) alpha.copy(rot).multiplyScalar(aMax);
+    else if (S.level) {
+      const f = V3(0, 0, -1).applyQuaternion(S.q); f.y = 0; if (f.lengthSq() < 1e-6) f.set(0, 0, -1); f.normalize();
+      const qt = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(V3(0, 1, 0).cross(f.clone().negate()), V3(0, 1, 0), f.clone().negate()));
+      const qe = S.q.clone().invert().multiply(qt); if (qe.w < 0) qe.set(-qe.x, -qe.y, -qe.z, -qe.w);
+      const ang = 2 * Math.acos(Math.min(1, qe.w)), s = Math.sqrt(1 - qe.w * qe.w), ax = s > 1e-6 ? V3(qe.x / s, qe.y / s, qe.z / s) : V3();
+      const wDes = ax.multiplyScalar(Math.min(10 * D2R, ang * 1.2));
+      alpha.copy(wDes).sub(S.w).multiplyScalar(4).clampLength(0, A_ROT);
+    } else if (S.rateHold) for (const c of ['x', 'y', 'z']) alpha[c] = -Math.sign(S.w[c]) * Math.min(A_ROT, Math.abs(S.w[c]) / dt);
+    if (S.rcs <= 0) alpha.set(0, 0, 0);
+    S.rcs = Math.max(0, S.rcs - alpha.length() / A_ROT * 0.35 * dt);
+    S.alpha = alpha;
+    S.w.addScaledVector(alpha, dt);
+    const wl = S.w.length(); if (wl > 1e-9) S.q.multiply(new THREE.Quaternion().setFromAxisAngle(S.w.clone().divideScalar(wl), wl * dt)).normalize();
+    // engine
+    const T = S.thr > 0.005 ? S.thr * TMAX : 0;
+    S.fuel = Math.max(0, S.fuel - T / (ISP * G0) * dt);
+    const a = up().multiplyScalar(T / mass); a.y -= G;
+    S.v.addScaledVector(a, dt); S.p.addScaledVector(S.v, dt);
+    S.t += dt;
+    checkGround();
+  } else if (S.mode === 'crash') {
+    for (const d of debris) {
+      d.v.y -= G * dt; d.m.position.addScaledVector(d.v, dt); d.m.rotation.x += d.w.x * dt; d.m.rotation.y += d.w.y * dt;
+      const h = heightAt(d.m.position.x, d.m.position.z); if (d.m.position.y < h + 0.3) { d.m.position.y = h + 0.3; d.v.y = Math.abs(d.v.y) * 0.3; d.v.x *= 0.6; d.v.z *= 0.6; d.w.multiplyScalar(0.6); }
+    }
+  }
+}
+function checkGround() {
+  let hit = false;
+  for (const f of FEET) { const w = f.clone().applyQuaternion(S.q).add(S.p); if (w.y <= heightAt(w.x, w.z)) hit = true; }
+  let bodyHit = false;
+  for (const b of BODYPTS) { const w = b.clone().applyQuaternion(S.q).add(S.p); if (w.y <= heightAt(w.x, w.z)) bodyHit = true; }
+  if (!hit && !bodyHit) return;
+  const vs = -S.v.y, hs = Math.hypot(S.v.x, S.v.z), tilt = Math.acos(Math.min(1, up().y)) * R2D;
+  const slope = Math.acos(normalAt(S.p.x, S.p.z).y) * R2D;
+  const R = { vs, hs, tilt, slope };
+  if (bodyHit && !hit) return crash('The descent stage hit the ground before the gear', R);
+  if (vs > 3 || hs > 2 || tilt > 15 || slope > 15 || bodyHit) {
+    const why = []; if (vs > 3) why.push(`vertical ${vs.toFixed(2)} m/s (gear limit 3)`); if (hs > 2) why.push(`horizontal ${hs.toFixed(2)} m/s — tipped over`);
+    if (tilt > 15) why.push(`tilt ${tilt.toFixed(1)}° at touchdown`); if (slope > 15) why.push(`ground slope ${slope.toFixed(1)}° — vehicle toppled`); if (bodyHit) why.push('engine bell struck the surface');
+    return crash('Crashed', R, why);
+  }
+  land(R);
+}
+function settle() {
+  const n = normalAt(S.p.x, S.p.z), f = V3(0, 0, -1).applyQuaternion(S.q); f.addScaledVector(n, -f.dot(n)).normalize();
+  const back = f.negate(), right = n.clone().cross(back);
+  S.q.setFromRotationMatrix(new THREE.Matrix4().makeBasis(right, n, back));
+  let m = -Infinity; for (const ft of FEET) { const w = ft.clone().applyQuaternion(S.q).add(S.p); m = Math.max(m, heightAt(w.x, w.z) - w.y); }
+  S.p.y += m; S.v.set(0, 0, 0); S.w.set(0, 0, 0);
+}
+function land(R) {
+  S.mode = 'landed'; S.thr = S.thrCmd = 0; settle();
+  const hard = R.vs > 2 || R.hs > 1.2 || R.tilt > 10 || R.slope > 10;
+  const dist = S.pad ? Math.hypot(S.p.x - S.pad.x, S.p.z - S.pad.z) : null;
+  const onPad = S.pad ? dist <= S.pad.r : true;
+  let score = Math.round(500 + S.fuel * 0.6 - R.vs * 120 - R.hs * 120 - R.tilt * 10 - (S.pad ? Math.min(400, dist * (dist > S.pad.r ? 3 : 1)) : 0) + (onPad && S.pad ? 300 : 0) - (hard ? 300 : 0));
+  score = Math.max(50, score);
+  const title = hard ? 'Hard landing' : (S.pad && !onPad ? 'Landed — off the pad' : 'The Eagle has landed');
+  const note = hard ? 'Crew safe, but the gear took a beating. The ascent stage is still flyable.' : S.pad && !onPad ? `Safe touchdown ${dist.toFixed(1)} m from the pad centre (pad radius ${S.pad.r} m).` : 'Clean touchdown inside the limits.';
+  showMsg(hard ? 'warn' : 'ok', title, `${note} · score <b style="color:var(--ink)">${score}</b>`, R, dist);
+}
+function crash(title, R, why = []) {
+  S.mode = 'crash'; S.thr = 0;
+  parts.forEach(p => p.visible = false); lander.visible = false;
+  for (const p of parts) {
+    const m = p.clone(); p.getWorldPosition(m.position); m.quaternion.copy(S.q).multiply(p.quaternion); m.visible = true; scene.add(m);
+    const v = S.v.clone().multiplyScalar(0.3).add(V3(Math.random() - 0.5, Math.random() * 0.8 + 0.2, Math.random() - 0.5).multiplyScalar(14));
+    debris.push({ m, v, w: V3(Math.random() * 6 - 3, Math.random() * 6 - 3, 0) });
+  }
+  flash.position.copy(S.p); flash.intensity = 6000;
+  spawnDust(S.p.x, heightAt(S.p.x, S.p.z), S.p.z, 900, 22);
+  showMsg('bad', title, why.map(w => '• ' + w).join('<br>'), R, S.pad ? Math.hypot(S.p.x - S.pad.x, S.p.z - S.pad.z) : null);
+}
+function showMsg(c, title, body, R, dist) {
+  const m = document.getElementById('msg');
+  m.innerHTML = `<h2 class="${c}">${title}</h2><p>${body}</p>
+    <div class="row"><span>Vertical speed</span><b>${R.vs.toFixed(2)} m/s</b></div>
+    <div class="row"><span>Horizontal speed</span><b>${R.hs.toFixed(2)} m/s</b></div>
+    <div class="row"><span>Tilt / ground slope</span><b>${R.tilt.toFixed(1)}° / ${R.slope.toFixed(1)}°</b></div>
+    ${dist != null ? `<div class="row"><span>Distance to pad</span><b>${dist.toFixed(1)} m</b></div>` : ''}
+    <div class="row"><span>Fuel left</span><b>${S.fuel.toFixed(0)} kg (${(S.fuel / hoverFlow()).toFixed(0)} s hover)</b></div>
+    <div class="row"><span>Flight time</span><b>${S.t.toFixed(1)} s</b></div>
+    <div class="btns"><button id="again">Retry (Enter)</button><button id="nextS">Next scenario</button></div>`;
+  m.style.display = 'block';
+  document.getElementById('again').onclick = () => loadScenario(+sel.value);
+  document.getElementById('nextS').onclick = () => { sel.value = (+sel.value + 1) % SCN.length; loadScenario(+sel.value); };
+}
+const hoverFlow = () => (DRY + S.fuel + S.rcs) * G / (ISP * G0);
+
+// ---------- camera ----------
+let camSmooth = null;
+function updateCamera(dt) {
+  const f = V3(0, 0, -1).applyQuaternion(S.q); f.y = 0; if (f.lengthSq() < 1e-4) f.set(0, 0, -1); f.normalize();
+  const focus = S.mode === 'crash' ? S.p : lander.position;
+  if (S.cam === 0) {
+    const want = focus.clone().addScaledVector(f, -26).add(V3(0, 9, 0));
+    const gh = heightAt(want.x, want.z) + 2; if (want.y < gh) want.y = gh;
+    if (!camSmooth) camSmooth = want.clone(); camSmooth.lerp(want, 1 - Math.exp(-dt * 3));
+    camera.position.copy(camSmooth); camera.up.set(0, 1, 0); camera.lookAt(focus.clone().addScaledVector(f, 10).add(V3(0, -2, 0)));
+  } else if (S.cam === 1) {
+    const eye = V3(0, 1.75, -1.85).applyQuaternion(S.q).add(S.p);
+    const look = V3(0, -0.55, -1).normalize().applyQuaternion(S.q);
+    camera.position.copy(eye); camera.up.copy(up()); camera.lookAt(eye.clone().add(look));
+  } else if (S.cam === 2) {
+    if (camSmooth) camera.position.add(V3().copy(focus).sub(controls.target));
+    camSmooth = true; controls.target.copy(focus); controls.update();
+  } else {
+    const P = S.pad || PADS.A; const off = V3(P.x - sunDir.x * 40 + 25, 0, P.z - sunDir.z * 40);
+    camera.position.set(off.x, heightAt(off.x, off.z) + 2.0, off.z); camera.up.set(0, 1, 0); camera.lookAt(focus);
+  }
+}
+
+// ---------- instruments ----------
+const xp = document.getElementById('xp').getContext('2d'), mp = document.getElementById('map').getContext('2d');
+function headingBasis() { const f = V3(0, 0, -1).applyQuaternion(S.q); f.y = 0; if (f.lengthSq() < 1e-6) f.set(0, 0, -1); f.normalize(); return { f, r: V3(-f.z, 0, f.x) }; }
+function drawXP() {
+  const c = xp, w = 216, m = w / 2; c.setTransform(2, 0, 0, 2, 0, 0); c.clearRect(0, 0, w, w);
+  const { f, r } = headingBasis(), vf = S.v.dot(f), vr = S.v.dot(r);
+  const sc = v => Math.sign(v) * Math.min(1, Math.sqrt(Math.abs(v) / 20)) * (m - 10);
+  c.strokeStyle = '#2e3740'; c.lineWidth = 1; c.strokeRect(6, 6, w - 12, w - 12);
+  c.beginPath(); c.moveTo(6, m); c.lineTo(w - 6, m); c.moveTo(m, 6); c.lineTo(m, w - 6); c.stroke();
+  c.fillStyle = '#5d6873'; c.font = '9px JetBrains Mono';
+  for (const v of [1, 5, 20]) { const p = sc(v); c.fillRect(m + p - 0.5, m - 4, 1, 8); c.fillRect(m - p - 0.5, m - 4, 1, 8); c.fillRect(m - 4, m - p - 0.5, 8, 1); c.fillRect(m - 4, m + p - 0.5, 8, 1); c.fillText(v, m + p - 3, m + 14); }
+  const okc = Math.hypot(vf, vr) <= 1.2 ? '#5be39a' : '#ffc857';
+  c.strokeStyle = okc; c.lineWidth = 2.5;
+  c.beginPath(); c.moveTo(m + sc(vr), 10); c.lineTo(m + sc(vr), w - 10); c.stroke();   // lateral needle
+  c.beginPath(); c.moveTo(10, m - sc(vf)); c.lineTo(w - 10, m - sc(vf)); c.stroke();   // forward needle
+  c.fillStyle = '#8b97a3'; c.fillText('FWD', m + 4, 16); c.fillText('RIGHT', w - 40, m - 6);
+  c.fillText(`fwd ${vf.toFixed(1)}  lat ${vr.toFixed(1)} m/s`, 10, w - 10);
+}
+function drawMap() {
+  const c = mp, w = 216, m = w / 2; c.setTransform(2, 0, 0, 2, 0, 0); c.clearRect(0, 0, w, w);
+  const { f, r } = headingBasis();
+  const range = S.pad ? Math.max(60, Math.min(3000, Math.hypot(S.p.x - S.pad.x, S.p.z - S.pad.z) * 1.4)) : 300, s = (m - 8) / range;
+  c.strokeStyle = '#2e3740'; c.beginPath(); c.arc(m, m, m - 6, 0, 7); c.stroke(); c.beginPath(); c.arc(m, m, (m - 6) / 2, 0, 7); c.stroke();
+  const toMap = (x, z) => { const dx = x - S.p.x, dz = z - S.p.z; return [m + (dx * r.x + dz * r.z) * s, m - (dx * f.x + dz * f.z) * s]; };
+  for (const P of Object.values(PADS)) { const [x, y] = toMap(P.x, P.z); if (Math.hypot(x - m, y - m) < m - 6) { c.strokeStyle = P === S.pad ? '#5be39a' : '#3f5a4a'; c.lineWidth = 2; c.beginPath(); c.arc(x, y, Math.max(3, P.r * s), 0, 7); c.stroke(); } }
+  // ballistic-with-current-thrust predicted ground track, 20 s
+  c.strokeStyle = '#ffc857'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(m, m);
+  const a = up().multiplyScalar(S.thr * TMAX / (DRY + S.fuel + S.rcs)); a.y -= G;
+  for (let t = 1; t <= 20; t++) { const x = S.p.x + S.v.x * t + 0.5 * a.x * t * t, z = S.p.z + S.v.z * t + 0.5 * a.z * t * t; c.lineTo(...toMap(x, z)); }
+  c.stroke();
+  c.fillStyle = '#e8ecef'; c.beginPath(); c.moveTo(m, m - 7); c.lineTo(m - 5, m + 5); c.lineTo(m + 5, m + 5); c.fill();
+  c.fillStyle = '#5d6873'; c.font = '9px JetBrains Mono'; c.fillText(`${range.toFixed(0)} m`, 8, 14); c.fillText('heading up · yellow 20 s track', 8, w - 8);
+}
+const tele = document.getElementById('tele'), chips = document.getElementById('chips'), callEl = document.getElementById('call'), contactEl = document.getElementById('contact');
+const bAlt = document.getElementById('bAlt'), bVs = document.getElementById('bVs'), bHs = document.getElementById('bHs');
+const padmark = document.getElementById('padmark'), padtxt = document.getElementById('padtxt');
+let callTxt = '', callT = 0;
+function call(id, txt, cls = 'warn') { if (S.calls.has(id)) return; S.calls.add(id); callTxt = `<span class="${cls}">${txt}</span>`; callT = 3.5; }
+function updateHUD(dt) {
+  const alt = agl(), vs = S.v.y, hs = Math.hypot(S.v.x, S.v.z), mass = DRY + S.fuel + S.rcs;
+  const tilt = Math.acos(Math.min(1, up().y)) * R2D, hov = S.fuel / hoverFlow(), twr = TMAX * S.thr / (mass * G);
+  const e = new THREE.Euler().setFromQuaternion(S.q, 'YXZ');
+  bAlt.textContent = alt > 999 ? (alt / 1000).toFixed(2) + ' km' : alt.toFixed(1) + ' m';
+  bVs.textContent = (vs >= 0 ? '+' : '') + vs.toFixed(1); bVs.className = alt < 30 && vs < -2 ? 'bad' : '';
+  bHs.textContent = hs.toFixed(1); bHs.className = alt < 30 && hs > 1.2 ? 'bad' : '';
+  const dist = S.pad ? Math.hypot(S.p.x - S.pad.x, S.p.z - S.pad.z) : null;
+  tele.innerHTML = `
+    <div class="sec">Descent engine</div>
+    <div class="row"><span>Throttle</span><b class="${S.thr > 0.65 ? 'warn' : ''}">${(S.thr * 100).toFixed(0)} %</b></div>
+    <div class="bar"><i style="width:${S.thr * 100}%"></i><s style="left:10%"></s><s style="left:${Math.min(100, hoverThrottle() * 100)}%;background:var(--ok)"></s></div>
+    <div class="row"><span>Thrust / TWR</span><b>${(S.thr * TMAX / 1000).toFixed(1)} kN / ${twr.toFixed(2)}</b></div>
+    <div class="row"><span>Hover throttle</span><b>${(hoverThrottle() * 100).toFixed(0)} %</b></div>
+    <div class="row"><span>Fuel</span><b class="${hov < 30 ? 'bad' : hov < 60 ? 'warn' : ''}">${S.fuel.toFixed(0)} kg</b></div>
+    <div class="bar"><i style="width:${Math.min(100, S.fuel / S.scn.fuel * 100)}%;background:${hov < 30 ? 'var(--bad)' : 'var(--ice)'}"></i></div>
+    <div class="row"><span>Hover time left</span><b class="${hov < 30 ? 'bad' : hov < 60 ? 'warn' : ''}">${hov.toFixed(0)} s</b></div>
+    <div class="row"><span>RCS propellant</span><b>${(S.rcs / RCS0 * 100).toFixed(0)} %</b></div>
+    <div class="sec">Attitude</div>
+    <div class="row"><span>Tilt from vertical</span><b class="${tilt > 10 && alt < 20 ? 'bad' : ''}">${tilt.toFixed(1)}°</b></div>
+    <div class="row"><span>Pitch / roll</span><b>${(-e.x * R2D).toFixed(1)}° / ${(e.z * R2D).toFixed(1)}°</b></div>
+    <div class="row"><span>Heading</span><b>${((360 - e.y * R2D) % 360).toFixed(0)}°</b></div>
+    <div class="sec">Trajectory</div>
+    <div class="row"><span>Radar altitude</span><b>${alt.toFixed(1)} m</b></div>
+    <div class="row"><span>Vertical speed</span><b class="${alt < 30 && vs < -2 ? 'bad' : ''}">${vs.toFixed(2)} m/s</b></div>
+    <div class="row"><span>Horizontal speed</span><b>${hs.toFixed(2)} m/s</b></div>
+    ${S.pad ? `<div class="row"><span>Range to pad</span><b>${dist < 1000 ? dist.toFixed(0) + ' m' : (dist / 1000).toFixed(2) + ' km'}</b></div>` : '<div class="row"><span>Target</span><b>any safe spot</b></div>'}
+    <div class="row"><span>Mass</span><b>${mass.toFixed(0)} kg</b></div>
+    <div class="row"><span>Mission time</span><b>${S.t.toFixed(1)} s</b></div>`;
+  chips.innerHTML = [['ATT HOLD', S.rateHold], ['AUTO-LEVEL', S.level], [S.rod ? `ROD ${S.rodCmd.toFixed(1)} m/s` : 'ROD', S.rod]].map(([n, on]) => `<span class="chip ${on ? 'on' : ''}">${n}</span>`).join('') +
+    (S.paused ? '<span class="chip am">PAUSED</span>' : '') + (S.fuel <= 0 ? '<span class="chip am">FUEL DEPLETED</span>' : '');
+  contactEl.classList.toggle('lit', alt < 1.7 + 0.05 || S.mode === 'landed');
+  if (S.mode === 'fly') {
+    if (hov < 60) call('60', '“60 SECONDS”'); if (hov < 30) call('30', '“30 SECONDS”', 'bad');
+    if (S.fuel <= 0) call('dry', 'FUEL DEPLETED', 'bad');
+    if (alt < 1.75) call('contact', '“CONTACT LIGHT”', 'ok');
+    if (alt < 60 && vs < -6) call('sink', 'SINK RATE', 'bad');
+    if (S.thr > 0.65 && S.thr < 0.99) call('erosion', 'THROTTLE > 65 %: erosion zone on the real DPS', 'warn');
+  }
+  callT -= dt; callEl.innerHTML = callT > 0 ? callTxt : '';
+  drawXP(); drawMap();
+}
+function updatePadMarker() {
+  if (!S.pad) { padmark.style.display = 'none'; return; }
+  const p = V3(S.pad.x, S.pad.h + 3, S.pad.z).project(camera);
+  if (p.z > 1 || Math.abs(p.x) > 1.1 || Math.abs(p.y) > 1.1) { padmark.style.display = 'none'; return; }
+  padmark.style.display = 'block'; padmark.style.left = (p.x * 0.5 + 0.5) * innerWidth + 'px'; padmark.style.top = (-p.y * 0.5 + 0.5) * innerHeight + 'px';
+  const d = S.p.distanceTo(V3(S.pad.x, S.pad.h, S.pad.z)); padtxt.textContent = `${S.pad.name.split(' · ')[0]} · ${d < 1000 ? d.toFixed(0) + ' m' : (d / 1000).toFixed(1) + ' km'}`;
+}
+
+// ---------- effects ----------
+function updateFX(dt) {
+  const T = S.mode === 'fly' ? S.thr : 0;
+  plume.visible = T > 0.01; plume.scale.set(0.6 + T * 0.6, 0.5 + T * 0.8 * (0.9 + Math.random() * 0.2), 0.6 + T * 0.6);
+  glow.intensity = T * 40;
+  // dust where the plume hits the ground
+  if (T > 0.05) {
+    const ax = up().negate(), eng = V3(0, -2.45, 0).applyQuaternion(S.q).add(S.p);
+    const h = heightAt(eng.x, eng.z), d = eng.y - h;
+    if (d < 28 && ax.y < -0.3) { const t = d / Math.max(0.3, -ax.y); const gx = eng.x + ax.x * t, gz = eng.z + ax.z * t; spawnDust(gx, heightAt(gx, gz), gz, Math.floor(T * (1 - d / 28) * 160 * dt * 60 / 4) + 1, 18 + T * 25); }
+  }
+  // RCS puffs
+  const a = S.alpha || V3();
+  for (const p of puffs) {
+    // torque from a vertical jet at (x, z) firing d: force -d·y → τ = r × F
+    const tq = V3(p.x, 1.75, p.z).cross(V3(0, -p.d, 0));
+    p.m.visible = S.mode === 'fly' && a.lengthSq() > 1e-6 && tq.normalize().dot(a.clone().normalize()) > 0.3 && Math.random() > 0.2;
+  }
+  flash.intensity *= Math.exp(-dt * 3);
+  const blink = (performance.now() / 1000) % 1.2 < 0.6;
+  for (const P of Object.values(PADS)) for (const b of P.beacons || []) b.visible = P === S.pad ? blink : false;
+}
+
+// ---------- loop ----------
+function resize() { renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); }
+addEventListener('resize', resize); resize();
+let last = performance.now(), hudT = 0;
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  if (!S.paused && dt > 0) { const n = Math.ceil(dt / (1 / 240)); for (let i = 0; i < n; i++) step(dt / n); updateDust(dt); }
+  lander.position.copy(S.p); lander.quaternion.copy(S.q);
+  sun.position.copy(S.p).addScaledVector(sunDir, 200); sun.target.position.copy(S.p);
+  updateFX(dt); updateCamera(dt);
+  hudT += dt; if (hudT > 0.07) { updateHUD(hudT); hudT = 0; }
+  updatePadMarker();
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+
+const loadTex = u => new Promise(res => new THREE.TextureLoader().load(u, t => { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; res(t); }, undefined, () => res(null)));
+Promise.all([loadTex('../shared/nasa/moon_tranquility_lroc.jpg'), loadTex('../shared/nasa/earth_day_4k.jpg')]).then(([moon, earthTex]) => {
+  genTerrain(); buildTerrain(moon);
+  if (earthTex) { earth.material.map = earthTex; earth.material.needsUpdate = true; } else earth.material.color.set(0x3366aa);
+  document.getElementById('loading').remove();
+  loadScenario(0); setCam(0);
+  requestAnimationFrame(t => { last = t; frame(t); });
+});
+window.__lander = { S, loadScenario, heightAt, step, agl };
+</script>
+</body>
+</html>
