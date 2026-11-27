@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grid Operator · Physics Sandbox</title>
+<meta name="description" content="Keep a 30 GW power grid at 50 Hz through a whole day: swing-equation frequency dynamics, system inertia, governor droop, AGC, batteries, renewables, load shedding and blackouts.">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/console.css">
+<script src="../shared/site.js" defer></script>
+<style>
+:root{--grn:#5be39a}
+.brand a{color:var(--mute);text-decoration:none;font-size:13px;margin-right:6px}.brand a:hover{color:var(--ink)}
+select{height:36px;background:var(--p2);color:var(--ink);border:1px solid var(--line2);border-radius:8px;padding:0 8px;font:inherit;font-size:13px;max-width:280px}
+.main{grid-template-columns:330px minmax(0,1fr) 300px}
+@media(max-width:1280px){.main{grid-template-columns:300px minmax(0,1fr)}.bottom{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.bottom .sq{grid-column:1/-1}}
+@media(max-width:860px){.main{grid-template-columns:minmax(0,1fr)}.bottom{grid-template-columns:minmax(0,1fr)}.simctl select{max-width:100%;flex:1 1 100%}}
+#gaugeFig{min-height:0;height:clamp(300px,38vh,420px)}
+.center .ctr{flex:1 1 auto;display:flex;flex-direction:column;border-top:1px solid var(--line)}
+.center .ctr .fig{flex:1 1 auto;min-height:260px}
+.fleet{display:grid;grid-template-columns:10px minmax(0,1fr) auto;gap:2px 8px;align-items:center;padding:8px 0;border-top:1px solid var(--line)}
+.fleet:first-of-type{border-top:0}
+.fleet .sw{width:10px;height:10px;border-radius:3px}
+.fleet .nm{font-weight:500;font-size:13.5px}
+.fleet .nm small{display:block;font:400 12px var(--mono);color:var(--mute)}
+.fleet .rd{font:13px var(--mono);text-align:right;white-space:nowrap}
+.fleet .sub{grid-column:2/4;display:flex;gap:8px;align-items:center}
+.fleet .sub input[type=range]{flex:1}
+.fleet .sub .tg{width:40px;height:22px}.fleet .sub .tg::after{width:14px;height:14px}.fleet .sub .tg[aria-pressed=true]::after{transform:translateX(18px)}
+.fleet .bar{height:4px;grid-column:2/4;flex:none}
+.fleet.off .nm{color:var(--dim)}
+.fr{font:600 11px var(--mono);padding:2px 6px;border-radius:4px;border:1px solid var(--line2);color:var(--dim);background:none;cursor:pointer}
+.fr[aria-pressed=true]{color:#0b0d10;background:var(--grn);border-color:var(--grn)}
+.evbtn{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.evbtn .btn{height:32px;font-size:12.5px;padding:0 8px;white-space:normal;line-height:1.1}
+.score{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.score div{background:var(--p2);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.score .k{font-size:12.5px;color:var(--mute)}.score .v{font:500 18px var(--mono)}
+.kpi.hero .v{color:var(--grn)}
+.bottom{grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr)}
+.dayover{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(440px,92%);background:rgba(17,21,26,.96);border:1px solid var(--line2);border-radius:14px;padding:18px 20px;display:none;z-index:4}
+.dayover.show{display:block}.dayover h3{margin:0 0 6px;font:700 22px "Inter Tight",Inter,sans-serif;color:var(--ink)}
+.dayover p{color:var(--mute);margin:4px 0 10px}
+.dayover dl{display:grid;grid-template-columns:auto auto;gap:3px 12px;margin:0 0 12px;font-size:13px}.dayover dd{margin:0;text-align:right;font-family:var(--mono)}.dayover dt{color:var(--mute)}
+</style>
+</head>
+<body>
+<div class="app">
+<header>
+  <div class="brand"><a href="../" aria-label="Back to Physics Sandbox">← Sandbox</a><span data-sitenav></span><h1>Grid Operator</h1><span>30 GW island grid · 50 Hz</span></div>
+  <div class="shot"><span>Time <b id="clock">05:00</b></span><span>Day <b id="dayname">—</b></span></div>
+  <div class="phase" id="phase">—</div>
+  <div class="alarm" id="alarm"></div>
+  <div class="simctl">
+    <select id="scn" aria-label="Scenario"></select>
+    <div class="seg" id="speed" role="group" aria-label="Simulation speed"><button data-s="1">1×</button><button data-s="10">10×</button><button data-s="60">60×</button><button data-s="300">300×</button></div>
+    <button class="btn" id="pause" aria-pressed="false">Pause</button>
+    <button class="btn" id="restart">Restart day</button>
+  </div>
+</header>
+
+<div class="main">
+  <aside class="col l">
+    <h2>Dispatch</h2>
+    <div id="fleets"></div>
+    <p class="note">Sliders set each fleet's dispatch target; output follows at the fleet's ramp rate. <b style="color:var(--grn)">FR</b> = in frequency response (4 % droop, uses headroom). Starting a fleet takes its warm-up time.</p>
+  </aside>
+
+  <section class="center">
+    <div class="fig" id="gaugeFig">
+      <canvas id="gauge" aria-label="System frequency gauge"></canvas>
+      <div class="ov tl"><div class="mode" id="modeChips"></div></div>
+      <div class="toast" id="toast"></div>
+      <div class="dayover" id="dayover"></div>
+    </div>
+    <div class="kpis" id="kpis"></div>
+    <section class="panel ctr">
+      <div class="phead"><h2>Frequency &amp; balance</h2><div class="seg" id="win"><button data-w="120">2 min</button><button data-w="900">15 min</button><button data-w="3600">1 h</button></div></div>
+      <div class="fig"><canvas id="tr"></canvas></div>
+    </section>
+  </section>
+
+  <aside class="col r">
+    <h2>Control room</h2>
+    <h3>Automation</h3>
+    <div class="ctl inline"><div><label for="t-agc">AGC — secondary control</label><div class="act" id="a-agc"></div></div><button class="tg" id="t-agc" aria-pressed="false" aria-label="AGC"></button></div>
+    <div class="ctl inline"><div><label for="t-ed">Economic auto-dispatch</label><div class="act" id="a-ed"></div></div><button class="tg" id="t-ed" aria-pressed="false" aria-label="Economic auto-dispatch"></button></div>
+    <div class="ctl inline"><div><label for="t-ffr">Battery fast frequency response</label><div class="act">full output within 0.5 s at ±0.2 Hz</div></div><button class="tg" id="t-ffr" aria-pressed="false" aria-label="Battery FFR"></button></div>
+    <div class="ctl inline"><div><label for="t-syn">Grid-forming inverters (synthetic inertia)</label><div class="act">batteries &amp; wind emulate H ≈ 4 s</div></div><button class="tg" id="t-syn" aria-pressed="false" aria-label="Synthetic inertia"></button></div>
+    <div class="ctl"><div class="top"><label for="s-res">Reserve target (headroom)</label><span class="val" id="v-res"></span></div><input type="range" id="s-res" min="0" max="3000" step="50" style="--c:var(--grn)"></div>
+    <h3>Inject a fault</h3>
+    <div class="evbtn">
+      <button class="btn danger" data-ev="trip">Trip largest unit</button>
+      <button class="btn danger" data-ev="ic">Interconnector trip</button>
+      <button class="btn" data-ev="tv">TV pickup</button>
+      <button class="btn" data-ev="cloud">Cloud front</button>
+      <button class="btn" data-ev="storm">Storm cut-out</button>
+      <button class="btn" data-ev="load">Load loss (1 GW)</button>
+    </div>
+    <h3>Protection settings</h3>
+    <p class="note" style="margin-top:0">UFLS sheds 5 % of demand at 48.8, 48.6, 48.4, 48.2 Hz. Loss-of-mains relays trip embedded solar above 1 Hz/s RoCoF. Generators trip below 47.5 Hz or above 52 Hz — blackout.</p>
+  </aside>
+</div>
+
+<div class="bottom">
+  <section class="panel sq">
+    <div class="phead"><h2>Generation mix · today</h2><span class="note" style="margin:0" id="mixNote"></span></div>
+    <div class="fig"><canvas id="mix"></canvas></div>
+  </section>
+  <section class="panel">
+    <div class="phead"><h2>Day score</h2></div>
+    <div class="score" id="score"></div>
+    <p class="note">Score: cost and CO₂ are measured against the cheapest clean dispatch; frequency outside 49.8–50.2 Hz and any load shedding cost points. A blackout ends the day.</p>
+  </section>
+  <section class="panel">
+    <div class="phead"><h2>Event log</h2></div>
+    <ul class="log" id="log"></ul>
+  </section>
+</div>
+
+<details class="help">
+  <summary>How the grid works, and what the model does</summary>
+  <div class="cols">
+    <div>
+      <p><b>The job.</b> Generation must equal demand every second. Any mismatch goes into (or out of) the kinetic energy of every spinning generator, and the frequency moves: 2H·S/f₀ · df/dt = P<sub>gen</sub> − P<sub>load</sub>. Keep it inside 49.8–50.2 Hz.</p>
+      <p><b>Three layers of control.</b> <b>Inertia</b> (H, seconds) resists the change instantly — nuclear, coal, gas and hydro add it, wind and solar don't. <b>Primary response</b>: governors in frequency response add 1/R × Δf/f₀ of their rating within seconds (droop R = 4 %). <b>Secondary control (AGC)</b> slowly moves set-points to bring 50.00 Hz back and re-balance.</p>
+    </div>
+    <div>
+      <p><b>Why low inertia is hard.</b> At sunny midday, with solar displacing thermal plant, the same 1.2 GW trip gives a much steeper RoCoF. Above 1 Hz/s the loss-of-mains relays on rooftop solar trip — losing even more generation. Batteries with fast frequency response or grid-forming inverters fix it.</p>
+      <p><b>Dispatch.</b> Each fleet has a minimum stable output, a ramp rate and a start-up time. Nuclear is cheap and inflexible, open-cycle gas is fast and expensive, hydro is fast but energy-limited, batteries and pumped storage have to be charged.</p>
+    </div>
+    <div>
+      <p><b>Things to try.</b> Turn off AGC and auto-dispatch and run the evening ramp by hand. In the duck-curve scenario, trip the nuclear unit at 13:00 with FFR off, then again with it on. In the winter peak, catch the TV pickup at 20:15. Watch what the storm does to an all-wind afternoon.</p>
+      <p><b>Keys.</b> Space pause · 1–4 speed · T trip largest unit.</p>
+      <p class="note">Aggregated single-bus model: numbers are representative of a mid-size national grid, not a specific system operator.</p>
+    </div>
+  </div>
+</details>
+</div>
+
+<script>
+(() => {
+const $ = id => document.getElementById(id);
+const F0 = 50;
+// ---------- fleets ----------
+// cap MW, min stable fraction, ramp MW/min, H s (inertia constant), governor time constant s, €/MWh, tCO2/MWh, start-up min, colour
+const FLEETS = [
+  { id: 'nuc', name: 'Nuclear', cap: 7200, min: 0.85, ramp: 40, H: 6, tg: 8, cost: 12, co2: 0, start: 600, c: '#b38cff', unit: 1200 },
+  { id: 'coal', name: 'Coal', cap: 5000, min: 0.4, ramp: 100, H: 5, tg: 6, cost: 72, co2: 0.92, start: 360, c: '#8b7d6b' },
+  { id: 'ccgt', name: 'Combined-cycle gas', cap: 12000, min: 0.45, ramp: 600, H: 5, tg: 5, cost: 88, co2: 0.37, start: 60, c: '#ff9f43' },
+  { id: 'ocgt', name: 'Open-cycle gas', cap: 3000, min: 0.0, ramp: 900, H: 3, tg: 3, cost: 185, co2: 0.6, start: 10, c: '#ff5d6c' },
+  { id: 'hydro', name: 'Hydro (reservoir)', cap: 2500, min: 0.0, ramp: 1200, H: 3.5, tg: 2.5, cost: 35, co2: 0, start: 2, c: '#4fb6ff', energy: 14000 },
+  { id: 'ps', name: 'Pumped storage', cap: 2000, min: -1, ramp: 1500, H: 3.5, tg: 2, cost: 60, co2: 0, start: 3, c: '#3fe0bf', store: 10000, signed: true },
+  { id: 'bat', name: 'Battery', cap: 2000, min: -1, ramp: 60000, H: 0, tg: 0.3, cost: 50, co2: 0, start: 0, c: '#ffc857', store: 4000, signed: true },
+  { id: 'ic', name: 'Interconnector', cap: 3000, min: -1, ramp: 300, H: 0, tg: 30, cost: 95, co2: 0.25, start: 0, c: '#8b97a3', signed: true },
+  { id: 'wind', name: 'Wind', cap: 14000, min: 0, ramp: 1e9, H: 0, tg: 1, cost: 0, co2: 0, start: 0, c: '#7cc8ff', vre: true },
+  { id: 'solar', name: 'Solar', cap: 12000, min: 0, ramp: 1e9, H: 0, tg: 1, cost: 0, co2: 0, start: 0, c: '#ffe08a', vre: true },
+];
+// ---------- scenarios (demand and weather shapes) ----------
+const SCN = [
+  { name: 'Spring weekday · breezy, sunny spells', peak: 31000, base: 21000, wind: [0.42, 0.18], solar: 0.75, clouds: 0.3, events: [[11.5, 'cloud'], [17.2, 'trip']] },
+  { name: 'Duck curve · summer, 12 GW solar at noon', peak: 28500, base: 19000, wind: [0.18, 0.08], solar: 1.0, clouds: 0.08, events: [[13.0, 'trip']] },
+  { name: 'Winter peak · cold, still evening', peak: 38500, base: 25500, wind: [0.12, 0.08], solar: 0.28, clouds: 0.5, events: [[20.25, 'tv'], [18.4, 'ic']] },
+  { name: 'Storm day · gale, then turbine cut-out', peak: 32000, base: 22000, wind: [0.82, 0.06], solar: 0.35, clouds: 0.6, events: [[15.0, 'storm']] },
+];
+const sel = $('scn'); SCN.forEach((s, i) => sel.add(new Option(s.name, i)));
+
+// ---------- state ----------
+let S;
+function newDay(i) {
+  const sc = SCN[i];
+  S = { sc, t: 5 * 3600, f: 50, rocof: 0, paused: false, speed: 60, agc: true, ed: true, ffr: true, syn: false, res: 1300, shed: 0, shedE: 0, ufls: 0, black: false, done: false,
+    cost: 0, co2: 0, energy: 0, outOfBand: 0, lom: 0, tripped: 0, icTrip: false, storm: 0, cloud: 0, tvT: -1, loadLoss: 0, evDone: new Set(), agcInt: 0,
+    hist: [], mix: [], lastMix: 0, rngSeed: 7 + i * 13, windNoise: 0, loadNoise: 0, toast: null, toastT: 0 };
+  S.u = {};
+  for (const f of FLEETS) S.u[f.id] = { on: !['ocgt'].includes(f.id) || false, set: 0, p: 0, pr: 0, fr: !f.vre && f.id !== 'nuc' && f.id !== 'ic', soc: f.store ? f.store * 0.5 : 0, energy: f.energy || 0, startT: 0, curt: 1 };
+  S.u.coal.on = i === 2; S.u.ocgt.on = false; S.u.ps.fr = true; S.u.bat.fr = true;
+  dispatch(true);
+  for (const f of FLEETS) S.u[f.id].p = S.u[f.id].set;
+  $('log').innerHTML = ''; log('Shift start · 05:00', 'good');
+  $('dayover').classList.remove('show');
+  buildFleetUI(); syncAll();
+}
+function rnd() { S.rngSeed = (S.rngSeed * 16807) % 2147483647; return S.rngSeed / 2147483647; }
+
+// ---------- demand and weather ----------
+const hour = t => (t / 3600) % 24;
+function demandAt(t) {
+  const sc = S.sc, h = hour(t);
+  const morning = 1 / (1 + Math.exp(-(h - 7) * 1.6)), evening = Math.exp(-Math.pow((h - 18.6) / 1.9, 2)), night = Math.exp(-Math.pow((h - 3.5) / 2.5, 2));
+  let d = sc.base + (sc.peak - sc.base) * (0.62 * morning + 0.38 * evening + 0.06 * Math.sin((h - 12) / 4)) - 1200 * night;
+  if (h > 22) d -= (h - 22) * 2500;
+  if (S.tvT > 0) { const k = (t - S.tvT) / 60; if (k > 0 && k < 6) d += 1700 * Math.sin(Math.PI * Math.min(1, k / 3)) * (k < 3 ? 1 : (6 - k) / 3); }
+  return d + S.loadNoise - S.loadLoss;
+}
+function solarAt(t) {
+  const h = hour(t), el = Math.sin(Math.PI * (h - 6.2) / 13.6);
+  if (el <= 0) return 0;
+  const clouds = 1 - S.sc.clouds * (0.5 + 0.5 * Math.sin(t / 1700 + 1.3) * Math.sin(t / 530)) - S.cloud;
+  return Math.max(0, Math.pow(el, 1.25) * S.sc.solar * Math.max(0.05, clouds));
+}
+function windAt(t) {
+  const [m, a] = S.sc.wind, h = hour(t);
+  let w = m + a * Math.sin(h / 24 * 6.283 + 1) + S.windNoise;
+  if (S.storm > 0) w = Math.max(0.04, w * (1 - S.storm));
+  return Math.max(0, Math.min(1, w));
+}
+
+// ---------- economic dispatch (merit order with reserve) ----------
+function dispatch(init = false) {
+  const t = S.t + 15 * 60, D = demandAt(t), sol = solarAt(t) * FLEETS[9].cap * S.u.solar.curt, win = windAt(t) * FLEETS[8].cap * S.u.wind.curt;
+  let need = D - sol - win;
+  const order = ['nuc', 'hydro', 'coal', 'ccgt', 'ic', 'ps', 'ocgt'];
+  const fleet = id => FLEETS.find(f => f.id === id);
+  for (const id of order) S.u[id].set = 0;
+  // must-run nuclear at its minimum, then fill by price; keep reserve headroom on dispatchable units
+  const nuc = fleet('nuc'), avail = nuc.cap - S.tripped;
+  S.u.nuc.set = Math.min(avail, Math.max(avail * nuc.min, need)); need -= S.u.nuc.set;
+  const hyd = S.u.hydro, hrem = hyd.energy / Math.max(1, (24 - hour(S.t))), hcap = Math.min(fleet('hydro').cap * 0.75, hrem * 1.6);
+  const pk = Math.exp(-Math.pow((hour(t) - 18.6) / 2.2, 2)) + 0.4 * Math.exp(-Math.pow((hour(t) - 8) / 1.5, 2));
+  const hset = Math.min(hcap, Math.max(0, need) * 0.15 + hcap * pk); S.u.hydro.set = hset; need -= hset;
+  for (const id of ['coal', 'ccgt', 'ic', 'ocgt']) {
+    const f = fleet(id), u = S.u[id];
+    if (!u.on && id !== 'ic') continue;
+    if (id === 'ic' && S.icTrip) continue;
+    const room = id === 'ic' ? f.cap : f.cap * (u.on ? 1 : 0) - (id === 'ccgt' ? S.res * 0.6 : id === 'coal' ? S.res * 0.15 : 0);
+    const lo = id === 'ic' ? -f.cap : f.cap * f.min;
+    u.set = Math.max(lo, Math.min(room, need)); need -= u.set;
+  }
+  // storage: charge on surplus, discharge in shortage
+  for (const id of ['ps', 'bat']) { const f = fleet(id), u = S.u[id]; const want = Math.max(-f.cap, Math.min(f.cap, need)); const ok = want > 0 ? u.soc > f.store * 0.1 : u.soc < f.store * 0.95; u.set = ok ? want * (id === 'bat' ? 0.5 : 1) : 0; need -= u.set; }
+  if (need < -300) { // surplus: curtail renewables
+    const k = Math.max(0, 1 + need / Math.max(1, sol + win)); S.u.solar.curt = Math.max(0.2, Math.min(1, S.u.solar.curt * k)); S.u.wind.curt = Math.max(0.2, Math.min(1, S.u.wind.curt * k));
+  } else { S.u.solar.curt = Math.min(1, S.u.solar.curt + 0.1); S.u.wind.curt = Math.min(1, S.u.wind.curt + 0.1); }
+  // start peakers ahead of the evening ramp if the reserve is short
+  const headroom = FLEETS.filter(f => !f.vre && S.u[f.id].on && f.id !== 'nuc').reduce((a, f) => a + (f.cap - S.u[f.id].set), 0);
+  if (!init && headroom < S.res && !S.u.ocgt.on && !S.u.ocgt.startT) startFleet('ocgt', 'auto-dispatch: reserve short');
+  if (!init && hour(S.t) > 15 && hour(S.t) < 16 && S.sc.peak > 34000 && !S.u.coal.on && !S.u.coal.startT) startFleet('coal', 'auto-dispatch: evening peak');
+  if (init) { S.u.ccgt.on = true; }
+}
+function startFleet(id, why) {
+  const f = FLEETS.find(x => x.id === id), u = S.u[id];
+  if (u.on || u.startT) return;
+  if (f.start === 0) { u.on = true; return; }
+  u.startT = S.t + f.start * 60; log(`${f.name}: start-up ordered (${f.start >= 60 ? (f.start / 60).toFixed(0) + ' h' : f.start + ' min'}) — ${why}`, 'auto');
+}
+
+// ---------- physics step ----------
+function step(dt) {
+  if (S.black || S.done) return;
+  S.t += dt;
+  const h = hour(S.t);
+  // scripted events
+  for (const [eh, ev] of S.sc.events) if (h >= eh && !S.evDone.has(eh)) { S.evDone.add(eh); fire(ev, true); }
+  // slow noise
+  S.windNoise += (rnd() - 0.5) * 0.0007 * Math.sqrt(dt) * 10 - S.windNoise * dt / 3600;
+  S.loadNoise += (rnd() - 0.5) * 60 * Math.sqrt(dt) - S.loadNoise * dt / 300;
+  if (S.storm > 0 && S.storm < 0.93) S.storm = Math.min(0.93, S.storm + dt / 900);
+  if (S.cloud > 0) S.cloud = Math.max(0, S.cloud - dt / 5400 * (S.cloud > 0.38 ? 0 : 1)); if (S.cloudT && S.t - S.cloudT < 300) S.cloud = Math.min(0.45, (S.t - S.cloudT) / 300 * 0.45);
+  // fleet start-ups
+  for (const f of FLEETS) { const u = S.u[f.id]; if (u.startT && S.t >= u.startT) { u.startT = 0; u.on = true; u.p = f.cap * f.min; log(`${f.name} synchronised`, 'good'); } }
+  const df = S.f - F0, dfp = df / F0;
+  // per-fleet output: ramp toward set-point + primary droop response through a governor lag
+  let Pgen = 0, Hs = 0, Sb = 0;
+  for (const f of FLEETS) {
+    const u = S.u[f.id];
+    if (f.vre) {
+      const avail = (f.id === 'solar' ? solarAt(S.t) * (1 - S.lom) : windAt(S.t)) * f.cap;
+      u.p = avail * u.curt; Pgen += u.p;
+      if (S.syn && f.id === 'wind') { Hs += 1.5 * u.p; }
+      continue;
+    }
+    if (!u.on) { u.p += (0 - u.p) * Math.min(1, dt / 30); Pgen += u.p; continue; }
+    let cap = f.cap; if (f.id === 'nuc') cap -= S.tripped; if (f.id === 'ic' && S.icTrip) { u.p = 0; continue; }
+    const lo = f.signed ? -cap : cap * f.min;
+    // energy-limited units
+    if (f.store) { if (u.soc <= f.store * 0.02) u.set = Math.min(u.set, 0); if (u.soc >= f.store * 0.99) u.set = Math.max(u.set, 0); }
+    if (f.energy != null && u.energy <= 0) u.set = 0;
+    const r = f.ramp / 60 * dt; u.pr += Math.max(-r, Math.min(r, Math.max(lo, Math.min(cap, u.set)) - u.pr));
+    let resp = 0;
+    if (u.fr) {
+      const db = 0.015 / F0, x = Math.abs(dfp) > db ? dfp - Math.sign(dfp) * db : 0;
+      resp = -x / 0.04 * cap;
+      if (f.id === 'bat' && S.ffr) resp = Math.max(-1, Math.min(1, -df / 0.2)) * cap;    // FFR: full output at ±0.2 Hz
+    }
+    const target = Math.max(lo, Math.min(cap, u.pr + resp));
+    u.p += (target - u.p) * Math.min(1, dt / f.tg);
+    Pgen += u.p;
+    if (f.store) u.soc = Math.max(0, Math.min(f.store, u.soc - u.p * dt / 3600 * (u.p < 0 ? 0.85 : 1)));
+    if (f.energy != null) u.energy = Math.max(0, u.energy - Math.max(0, u.p) * dt / 3600);
+    if (f.H > 0 && Math.abs(u.p) > 1) { const online = Math.max(cap * 0.6, Math.abs(u.p)); Hs += f.H * online; Sb += online; }
+    if (S.syn && f.id === 'bat') Hs += 4 * cap;
+  }
+  const D = demandAt(S.t) * (1 - S.shed), Ld = D * (1 + 0.015 * df);        // 1.5 %/Hz load damping
+  S.D = D; S.Pgen = Pgen; S.Hsys = Hs; S.Ek = Hs / 1000;                      // GW·s
+  // swing equation (aggregated): (2 H S / f0) · df/dt = Pgen − Pload
+  const M = 2 * Math.max(Hs, 2000) / F0;
+  const dfdt = (Pgen - Ld) / M;
+  S.rocof = S.rocof + (dfdt - S.rocof) * Math.min(1, dt / 0.5);
+  S.f += dfdt * dt;
+  // AGC: integral of area control error → shift dispatchable set-points
+  if (S.agc) {
+    const ace = df * 4000;                                                   // area control error, MW (bias 400 MW per 0.1 Hz)
+    S.agcInt += -ace * dt / 40;
+    S.agcInt = Math.max(-6000, Math.min(6000, S.agcInt));
+  } else S.agcInt *= Math.exp(-dt / 600);
+  // protection
+  if (!S.lom && Math.abs(S.rocof) > 1.0 && S.u.solar.p > 1500) { S.lom = 0.35; log(`RoCoF ${S.rocof.toFixed(2)} Hz/s — loss-of-mains relays tripped ${(S.u.solar.p * 0.35 / 1000).toFixed(1)} GW of rooftop solar`, 'crit'); toast('Loss-of-mains cascade: rooftop solar tripped', 'crit'); }
+  if (S.lom && S.t % 60 < dt) S.lom = Math.max(0, S.lom - 0.02);
+  const stages = [48.8, 48.6, 48.4, 48.2];
+  while (S.ufls < 4 && S.f < stages[S.ufls]) { S.ufls++; S.shed = Math.min(0.2, S.shed + 0.05); log(`UFLS stage ${S.ufls} at ${S.f.toFixed(2)} Hz — ${(0.05 * D / 1000).toFixed(1)} GW of demand disconnected`, 'crit'); toast(`Under-frequency load shedding · stage ${S.ufls}`, 'crit'); }
+  if (S.shed > 0 && S.f > 49.9) { S.shed = Math.max(0, S.shed - dt / 900); if (S.shed === 0) { S.ufls = 0; log('All demand reconnected', 'good'); } }
+  if (S.shed > 0) S.shedE += S.shed * D * dt / 3600;
+  if (S.f < 47.5 || S.f > 52) return blackout();
+  // accounting
+  for (const f of FLEETS) { const u = S.u[f.id]; if (u.p > 0) { S.cost += u.p * f.cost * dt / 3600; S.co2 += u.p * f.co2 * dt / 3600; } }
+  S.energy += D * dt / 3600;
+  if (Math.abs(df) > 0.2) S.outOfBand += dt;
+  if (h >= 23.99 || S.t >= 29 * 3600 - 1) endDay();
+}
+function fire(ev, scripted = false) {
+  if (!S || S.black) return;
+  const by = scripted ? '' : ' (operator)';
+  if (ev === 'trip') { if (S.tripped >= 2400) return; S.tripped += 1200; const u = S.u.nuc; u.p = Math.max(0, u.p - 1200); u.pr = Math.max(0, u.pr - 1200); log(`Nuclear unit tripped — 1.2 GW lost instantly${by}`, 'crit'); toast('Largest infeed lost · nuclear unit trip (1.2 GW)', 'crit'); }
+  if (ev === 'ic') { if (S.icTrip) return; S.icTrip = true; log(`Interconnector tripped at ${(S.u.ic.p / 1000).toFixed(2)} GW${by}`, 'crit'); toast('Interconnector trip', 'crit'); }
+  if (ev === 'tv') { S.tvT = S.t; log(`TV pickup: the big match ends — kettles on${by}`, 'warn'); toast('TV pickup incoming · +1.7 GW in 3 min', 'warn'); }
+  if (ev === 'cloud') { S.cloudT = S.t; log(`Cloud front over the solar belt${by}`, 'warn'); toast('Cloud front · solar dropping fast', 'warn'); }
+  if (ev === 'storm') { S.storm = 0.01; log(`Storm cut-out: turbines feathering above 25 m/s${by}`, 'crit'); toast('Storm cut-out · wind output collapsing', 'crit'); }
+  if (ev === 'load') { S.loadLoss += 1000; log(`Large industrial load disconnected (−1 GW)${by}`, 'warn'); toast('Load loss · frequency rising', 'warn'); }
+}
+function blackout() {
+  S.black = true; S.f = 0;
+  log('BLACKOUT — generators tripped on frequency protection', 'crit'); toast('BLACKOUT', 'crit');
+  showDay(false);
+}
+function endDay() { if (S.done) return; S.done = true; log('Day complete · 24:00', 'good'); showDay(true); }
+function scoreNow() {
+  const base = S.energy * 55, costIdx = S.cost / Math.max(1, base), ci = S.co2 / Math.max(1, S.energy) * 1000;
+  let sc = 1000 - Math.max(0, (costIdx - 1)) * 600 - ci * 0.9 - S.outOfBand / 60 * 4 - S.shedE / 10;
+  if (S.black) sc = 0;
+  return { sc: Math.max(0, Math.round(sc)), ci, costIdx };
+}
+function showDay(ok) {
+  const s = scoreNow(), el = $('dayover');
+  el.innerHTML = `<h3 style="color:${ok ? 'var(--good)' : 'var(--crit)'}">${ok ? 'Day complete' : 'Blackout'}</h3><p>${ok ? 'The lights stayed on.' : `Frequency collapsed at ${fmtH(S.t)} — every generator tripped. Black start takes hours.`}</p>
+    <dl><dt>Score</dt><dd>${s.sc}</dd><dt>Cost</dt><dd>€${(S.cost / 1e6).toFixed(2)} M</dd><dt>Carbon intensity</dt><dd>${s.ci.toFixed(0)} g/kWh</dd><dt>Time outside ±0.2 Hz</dt><dd>${(S.outOfBand / 60).toFixed(1)} min</dd><dt>Energy shed</dt><dd>${S.shedE.toFixed(0)} MWh</dd><dt>Demand served</dt><dd>${(S.energy / 1000).toFixed(0)} GWh</dd></dl>
+    <button class="btn primary" id="again">Run the day again</button> <button class="btn" id="nextDay">Next scenario</button>`;
+  el.classList.add('show');
+  $('again').onclick = () => newDay(+sel.value);
+  $('nextDay').onclick = () => { sel.value = (+sel.value + 1) % SCN.length; newDay(+sel.value); };
+}
+const fmtH = t => { const h = hour(t), m = Math.floor((h % 1) * 60); return `${String(Math.floor(h)).padStart(2, '0')}:${String(m).padStart(2, '0')}`; };
+function log(text, cls = '') { const li = document.createElement('li'); li.className = cls; li.innerHTML = `<time>${S ? fmtH(S.t) : ''}</time><i class="d"></i><span>${text}</span>`; $('log').prepend(li); while ($('log').children.length > 80) $('log').lastChild.remove(); }
+function toast(text, cls = '') { const t = $('toast'); t.textContent = text; t.className = 'toast show ' + cls; clearTimeout(t._t); t._t = setTimeout(() => t.className = 'toast', 4000); }
+
+// ---------- UI ----------
+function buildFleetUI() {
+  $('fleets').innerHTML = FLEETS.map(f => `<div class="fleet" id="fl-${f.id}"><i class="sw" style="background:${f.c}"></i><div class="nm">${f.name}<small id="fs-${f.id}"></small></div><div class="rd" id="fp-${f.id}"></div>
+    <div class="sub">${f.vre ? `<label style="font-size:12px;color:var(--mute);white-space:nowrap">curtail</label>` : `<button class="tg" id="fo-${f.id}" aria-label="${f.name} online" aria-pressed="false"></button>`}<input type="range" id="fx-${f.id}" min="${f.signed ? -f.cap : 0}" max="${f.cap}" step="50" style="--c:${f.c}" aria-label="${f.name} set-point">${f.vre || f.id === 'ic' ? '' : `<button class="fr" id="ff-${f.id}" aria-pressed="false" title="Frequency response">FR</button>`}</div>
+    <div class="bar"><i id="fb-${f.id}" style="background:${f.c}"></i></div></div>`).join('');
+  for (const f of FLEETS) {
+    const x = $('fx-' + f.id), u = S.u[f.id];
+    if (f.vre) { x.min = 0; x.max = 100; x.step = 1; x.oninput = () => { S.ed = false; u.curt = x.value / 100; syncAll(); }; }
+    else x.oninput = () => { S.ed = false; u.set = +x.value - (S.agc ? agcShare(f) : 0); syncAll(); };
+    const o = $('fo-' + f.id); if (o) o.onclick = () => { if (u.on) { u.on = false; u.set = 0; log(`${f.name} shut down`, ''); } else startFleet(f.id, 'operator'); syncAll(); };
+    const r = $('ff-' + f.id); if (r) r.onclick = () => { u.fr = !u.fr; syncAll(); };
+  }
+}
+function agcShare(f) { return ['ccgt', 'hydro', 'ocgt', 'ps'].includes(f.id) && S.u[f.id].on ? S.agcInt * { ccgt: 0.55, hydro: 0.2, ocgt: 0.15, ps: 0.1 }[f.id] : 0; }
+function syncAll() {
+  document.querySelectorAll('#speed button').forEach(b => b.setAttribute('aria-pressed', +b.dataset.s === S.speed));
+  document.querySelectorAll('#win button').forEach(b => b.setAttribute('aria-pressed', +b.dataset.w === win));
+  $('pause').setAttribute('aria-pressed', S.paused); $('pause').textContent = S.paused ? 'Resume' : 'Pause';
+  for (const [id, k] of [['agc', 'agc'], ['ed', 'ed'], ['ffr', 'ffr'], ['syn', 'syn']]) $('t-' + id).setAttribute('aria-pressed', !!S[k]);
+  const rs = $('s-res'); rs.value = S.res; rs.style.setProperty('--p', S.res / 3000 * 100 + '%'); $('v-res').textContent = (S.res / 1000).toFixed(2) + ' GW';
+  $('dayname').textContent = S.sc.name.split(' · ')[0];
+}
+['agc', 'ed', 'ffr', 'syn'].forEach(k => $('t-' + k).onclick = () => { S[k] = !S[k]; if (k === 'agc' && !S[k]) { for (const f of FLEETS) S.u[f.id].set += agcShare(f); S.agcInt = 0; } syncAll(); });
+$('s-res').oninput = e => { S.res = +e.target.value; syncAll(); };
+document.querySelectorAll('#speed button').forEach(b => b.onclick = () => { S.speed = +b.dataset.s; syncAll(); });
+let win = 900; document.querySelectorAll('#win button').forEach(b => b.onclick = () => { win = +b.dataset.w; syncAll(); });
+$('pause').onclick = () => { S.paused = !S.paused; syncAll(); };
+$('restart').onclick = () => newDay(+sel.value);
+sel.onchange = () => { newDay(+sel.value); sel.blur(); };
+document.querySelectorAll('[data-ev]').forEach(b => b.onclick = () => fire(b.dataset.ev));
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT' && e.target.type !== 'range') return;
+  if (e.code === 'Space') { e.preventDefault(); S.paused = !S.paused; syncAll(); }
+  else if (/^Digit[1-4]$/.test(e.code)) { S.speed = [1, 10, 60, 300][+e.code.slice(5) - 1]; syncAll(); }
+  else if (e.code === 'KeyT') fire('trip');
+});
+
+// ---------- drawing ----------
+function fit(cv) { const r = cv.getBoundingClientRect(), d = Math.min(2, devicePixelRatio || 1), w = Math.round(r.width * d), h = Math.round(r.height * d); if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; } const c = cv.getContext('2d'); c.setTransform(d, 0, 0, d, 0, 0); return { c, W: r.width, H: r.height }; }
+function drawGauge() {
+  const { c, W, H } = fit($('gauge')); c.clearRect(0, 0, W, H);
+  const cx = W / 2, cy = H * 0.78, R = Math.min(W * 0.36, H * 0.66), a0 = Math.PI * 1.08, a1 = Math.PI * 1.92;
+  const ang = f => a0 + (Math.max(49, Math.min(51, f)) - 49) / 2 * (a1 - a0);
+  const band = (f1, f2, col, w) => { c.strokeStyle = col; c.lineWidth = w; c.beginPath(); c.arc(cx, cy, R, ang(f1), ang(f2)); c.stroke(); };
+  band(49, 51, '#232a32', 16); band(49, 49.5, 'rgba(255,77,77,.55)', 16); band(50.5, 51, 'rgba(255,77,77,.55)', 16); band(49.5, 49.8, 'rgba(255,179,64,.55)', 16); band(50.2, 50.5, 'rgba(255,179,64,.55)', 16); band(49.8, 50.2, 'rgba(91,227,154,.5)', 16);
+  c.fillStyle = '#8b97a3'; c.font = '500 12px JetBrains Mono'; c.textAlign = 'center';
+  for (let f = 49; f <= 51.001; f += 0.25) { const a = ang(f), maj = Math.abs(f * 2 - Math.round(f * 2)) < 1e-6; c.strokeStyle = maj ? '#8b97a3' : '#5d6873'; c.lineWidth = maj ? 2 : 1; c.beginPath(); c.moveTo(cx + Math.cos(a) * (R - 12), cy + Math.sin(a) * (R - 12)); c.lineTo(cx + Math.cos(a) * (R - (maj ? 26 : 20)), cy + Math.sin(a) * (R - (maj ? 26 : 20))); c.stroke(); if (maj) c.fillText(f.toFixed(1), cx + Math.cos(a) * (R - 42), cy + Math.sin(a) * (R - 42) + 4); }
+  const a = ang(S.f), col = S.black ? '#ff4d4d' : Math.abs(S.f - 50) < 0.2 ? '#5be39a' : Math.abs(S.f - 50) < 0.5 ? '#ffb340' : '#ff4d4d';
+  c.strokeStyle = col; c.lineWidth = 4; c.shadowColor = col; c.shadowBlur = 14; c.beginPath(); c.moveTo(cx, cy); c.lineTo(cx + Math.cos(a) * (R - 8), cy + Math.sin(a) * (R - 8)); c.stroke(); c.shadowBlur = 0;
+  c.fillStyle = '#e8ecef'; c.beginPath(); c.arc(cx, cy, 7, 0, 7); c.fill();
+  c.fillStyle = col; c.font = `600 ${Math.max(34, R * 0.3)}px JetBrains Mono`; c.fillText(S.black ? '0.000' : S.f.toFixed(3), cx, cy - R * 0.32);
+  c.fillStyle = '#8b97a3'; c.font = '500 13px JetBrains Mono'; c.fillText(`Hz   ·   RoCoF ${S.rocof >= 0 ? '+' : ''}${S.rocof.toFixed(3)} Hz/s`, cx, cy - R * 0.32 + 26);
+  // RoCoF bar
+  const rw = Math.min(260, W * 0.5), rx = cx - rw / 2, ry = cy + 22; c.fillStyle = '#232a32'; c.fillRect(rx, ry, rw, 6);
+  const rv = Math.max(-1.5, Math.min(1.5, S.rocof)) / 1.5 * rw / 2; c.fillStyle = Math.abs(S.rocof) > 1 ? '#ff4d4d' : Math.abs(S.rocof) > 0.5 ? '#ffb340' : '#7cc8ff'; c.fillRect(cx + Math.min(0, rv), ry, Math.abs(rv), 6);
+  c.fillStyle = '#5d6873'; c.font = '11px JetBrains Mono'; c.fillText('±1 Hz/s loss-of-mains limit', cx, ry + 20);
+  c.strokeStyle = '#ff4d4d'; c.lineWidth = 1; for (const s of [-1, 1]) { const x = cx + s * rw / 3; c.beginPath(); c.moveTo(x, ry - 3); c.lineTo(x, ry + 9); c.stroke(); }
+  c.textAlign = 'left';
+}
+function drawTraces() {
+  const { c, W, H } = fit($('tr')); c.clearRect(0, 0, W, H);
+  const L = 56, Rr = 56, T = 14, B = 26, w = W - L - Rr, h = (H - T - B) / 2 - 8;
+  const now = S.t, pts = S.hist.filter(p => p[0] >= now - win);
+  const X = t => L + (t - (now - win)) / win * w;
+  // frequency
+  const fy = f => T + h / 2 - (f - 50) / 0.6 * h / 2;
+  c.fillStyle = 'rgba(91,227,154,.06)'; c.fillRect(L, fy(50.2), w, fy(49.8) - fy(50.2));
+  c.strokeStyle = '#2e3740'; c.lineWidth = 1; c.beginPath(); c.moveTo(L, fy(50)); c.lineTo(L + w, fy(50)); c.stroke();
+  c.strokeStyle = '#5be39a'; c.lineWidth = 1.8; c.beginPath(); pts.forEach((p, i) => { const y = fy(Math.max(49.4, Math.min(50.6, p[1]))); i ? c.lineTo(X(p[0]), y) : c.moveTo(X(p[0]), y); }); c.stroke();
+  c.fillStyle = '#8b97a3'; c.font = '12px JetBrains Mono'; c.fillText('Hz', 14, T + 10); for (const f of [49.6, 50, 50.4]) c.fillText(f.toFixed(1), 14, fy(f) + 4);
+  // demand vs generation
+  const y0 = T + h + 24, vals = pts.flatMap(p => [p[2], p[3]]), lo = Math.min(...vals, 1e9) - 500, hi = Math.max(...vals, 0) + 500;
+  const py = v => y0 + h - (v - lo) / Math.max(1, hi - lo) * h;
+  c.strokeStyle = '#e8ecef'; c.lineWidth = 1.5; c.beginPath(); pts.forEach((p, i) => i ? c.lineTo(X(p[0]), py(p[2])) : c.moveTo(X(p[0]), py(p[2]))); c.stroke();
+  c.strokeStyle = '#ff9f43'; c.setLineDash([4, 3]); c.beginPath(); pts.forEach((p, i) => i ? c.lineTo(X(p[0]), py(p[3])) : c.moveTo(X(p[0]), py(p[3]))); c.stroke(); c.setLineDash([]);
+  c.fillStyle = '#8b97a3'; c.fillText('GW', 14, y0 + 10); c.fillText((hi / 1000).toFixed(1), 14, y0 + 24); c.fillText((lo / 1000).toFixed(1), 14, y0 + h);
+  c.fillStyle = '#e8ecef'; c.fillText('— demand', L + w - 190, y0 + 10); c.fillStyle = '#ff9f43'; c.fillText('- - generation', L + w - 100, y0 + 10);
+  c.fillStyle = '#5d6873'; c.fillText(`−${win >= 3600 ? win / 3600 + ' h' : win / 60 + ' min'}`, L, H - 6); c.fillText('now', L + w - 24, H - 6);
+}
+function drawMix() {
+  const { c, W, H } = fit($('mix')); c.clearRect(0, 0, W, H);
+  const L = 44, w = W - L - 10, T = 10, h = H - T - 24, t0 = 5, t1 = 29;
+  const X = hh => L + (hh - t0) / (t1 - t0) * w, Y = v => T + h - v / 42000 * h;
+  c.strokeStyle = '#232a32'; for (let g = 0; g <= 40000; g += 10000) { c.beginPath(); c.moveTo(L, Y(g)); c.lineTo(L + w, Y(g)); c.stroke(); c.fillStyle = '#5d6873'; c.font = '11px JetBrains Mono'; c.fillText(g / 1000 + ' GW', 2, Y(g) + 4); }
+  for (let hh = 6; hh <= 28; hh += 3) c.fillText(String(hh % 24).padStart(2, '0') + ':00', X(hh) - 16, H - 6);
+  const order = ['nuc', 'coal', 'hydro', 'ccgt', 'ic', 'wind', 'solar', 'ps', 'bat', 'ocgt'];
+  const M = S.mix; if (M.length < 2) return;
+  let below = M.map(() => 0);
+  for (const id of order) {
+    const f = FLEETS.find(x => x.id === id), k = FLEETS.indexOf(f);
+    c.fillStyle = f.c + 'cc'; c.beginPath();
+    M.forEach((m, i) => { const v = below[i] + Math.max(0, m[1][k]); i ? c.lineTo(X(m[0]), Y(v)) : c.moveTo(X(m[0]), Y(v)); });
+    for (let i = M.length - 1; i >= 0; i--) c.lineTo(X(M[i][0]), Y(below[i]));
+    c.closePath(); c.fill();
+    below = below.map((b, i) => b + Math.max(0, M[i][1][k]));
+  }
+  c.strokeStyle = '#e8ecef'; c.lineWidth = 1.5; c.beginPath(); M.forEach((m, i) => i ? c.lineTo(X(m[0]), Y(m[2])) : c.moveTo(X(m[0]), Y(m[2]))); c.stroke();
+  const nh = hour(S.t) < 5 ? hour(S.t) + 24 : hour(S.t); c.strokeStyle = '#5d6873'; c.setLineDash([3, 3]); c.beginPath(); c.moveTo(X(nh), T); c.lineTo(X(nh), T + h); c.stroke(); c.setLineDash([]);
+}
+const KP = [['f', 'Frequency', 'Hz'], ['rocof', 'RoCoF', 'Hz/s'], ['dem', 'Demand', 'GW'], ['inert', 'System inertia', 'GW·s'], ['head', 'Reserve headroom', 'GW'], ['ci', 'Carbon intensity', 'g/kWh']];
+$('kpis').innerHTML = KP.map(([k, n, u], i) => `<div class="kpi${i === 0 ? ' hero' : ''}"><div class="k">${n}</div><div class="v" id="k-${k}">—<small>${u}</small></div><div class="lim"><i id="kl-${k}"></i></div></div>`).join('');
+function panels() {
+  $('clock').textContent = fmtH(S.t);
+  const df = Math.abs(S.f - 50), ph = $('phase');
+  ph.textContent = S.black ? 'BLACKOUT' : S.shed > 0 ? 'Load shedding' : df < 0.2 ? 'Normal · ±0.2 Hz' : df < 0.5 ? 'Alert' : 'Emergency';
+  ph.className = 'phase' + (S.black || S.shed > 0 || df >= 0.5 ? ' bad' : '');
+  const al = $('alarm'); al.textContent = S.black ? 'System blackout — all generation tripped' : S.lom ? 'Loss-of-mains: embedded solar tripped' : S.f < 49.5 ? 'Low frequency — start fast reserve' : S.f > 50.5 ? 'High frequency — reduce generation' : ''; al.className = 'alarm' + (S.black || S.f < 49.2 ? ' crit' : '');
+  const set = (k, v, frac, cls) => { const e = $('k-' + k); e.firstChild.textContent = v; e.style.color = cls || ''; $('kl-' + k).style.width = Math.max(0, Math.min(100, frac * 100)) + '%'; };
+  const ci = S.Pgen > 0 ? FLEETS.reduce((a, f) => a + Math.max(0, S.u[f.id].p) * f.co2, 0) / S.Pgen * 1000 : 0;
+  const head = FLEETS.filter(f => !f.vre && S.u[f.id].on).reduce((a, f) => a + Math.max(0, (f.id === 'nuc' ? f.cap - S.tripped : f.cap) - S.u[f.id].p), 0);
+  set('f', S.black ? '0.000' : S.f.toFixed(3), 1 - Math.min(1, df / 0.5), df < 0.2 ? '' : df < 0.5 ? 'var(--warn)' : 'var(--crit)');
+  set('rocof', S.rocof.toFixed(3), Math.min(1, Math.abs(S.rocof)), Math.abs(S.rocof) > 0.5 ? 'var(--warn)' : '');
+  set('dem', (S.D / 1000).toFixed(2), S.D / 40000); set('inert', S.Ek.toFixed(0), S.Ek / 250, S.Ek < 80 ? 'var(--warn)' : '');
+  set('head', (head / 1000).toFixed(2), head / 6000, head < S.res ? 'var(--warn)' : ''); set('ci', ci.toFixed(0), ci / 500);
+  for (const f of FLEETS) {
+    const u = S.u[f.id], el = $('fl-' + f.id), cap = f.id === 'nuc' ? f.cap - S.tripped : f.cap;
+    el.classList.toggle('off', !f.vre && !u.on);
+    $('fp-' + f.id).textContent = `${(u.p / 1000).toFixed(2)} GW`;
+    const st = f.vre ? `${(u.curt * 100).toFixed(0)} % · avail ${((f.id === 'solar' ? solarAt(S.t) * (1 - S.lom) : windAt(S.t)) * f.cap / 1000).toFixed(1)} GW` : u.startT ? `starting · ${Math.ceil((u.startT - S.t) / 60)} min` : !u.on ? 'offline' : f.store ? `${(u.soc / f.store * 100).toFixed(0)} % charged` : f.energy != null ? `${(u.energy / 1000).toFixed(1)} GWh left` : f.id === 'ic' && S.icTrip ? 'TRIPPED' : `${f.H ? 'H ' + f.H + ' s · ' : ''}${f.ramp < 1e6 ? (f.ramp < 1000 ? f.ramp + ' MW/min' : (f.ramp / 1000).toFixed(1) + ' GW/min') : ''}`;
+    $('fs-' + f.id).textContent = st;
+    $('fb-' + f.id).style.width = Math.max(0, Math.abs(u.p) / f.cap * 100) + '%';
+    const x = $('fx-' + f.id); if (document.activeElement !== x) { const v = f.vre ? u.curt * 100 : u.set + (S.agc ? agcShare(f) : 0); x.value = v; x.style.setProperty('--p', ((v - x.min) / (x.max - x.min) * 100) + '%'); }
+    const o = $('fo-' + f.id); if (o) o.setAttribute('aria-pressed', u.on || !!u.startT);
+    const r = $('ff-' + f.id); if (r) r.setAttribute('aria-pressed', u.fr);
+  }
+  $('a-agc').textContent = S.agc ? `ACE correction ${(S.agcInt / 1000).toFixed(2)} GW` : 'off — frequency settles off-nominal';
+  $('a-ed').textContent = S.ed ? 'merit order every 5 min' : 'manual dispatch';
+  const s = scoreNow();
+  $('score').innerHTML = `<div><div class="k">Score</div><div class="v">${s.sc}</div></div><div><div class="k">Cost</div><div class="v">€${(S.cost / 1e6).toFixed(2)}M</div></div><div><div class="k">CO₂</div><div class="v">${(S.co2 / 1000).toFixed(1)} kt</div></div><div><div class="k">Out of band</div><div class="v">${(S.outOfBand / 60).toFixed(1)} min</div></div><div><div class="k">Shed</div><div class="v">${S.shedE.toFixed(0)} MWh</div></div><div><div class="k">Avg intensity</div><div class="v">${s.ci.toFixed(0)} g</div></div>`;
+  $('mixNote').textContent = `wind ${(S.u.wind.p / 1000).toFixed(1)} · solar ${(S.u.solar.p / 1000).toFixed(1)} GW`;
+  $('modeChips').innerHTML = [['AGC', S.agc], ['AUTO-DISPATCH', S.ed], ['FFR', S.ffr], ['GRID-FORMING', S.syn], [`${S.speed}×`, true]].map(([n, on]) => `<span class="chip ${on ? 'on' : ''}">${n}</span>`).join('');
+}
+
+// ---------- loop ----------
+let prev = 0, acc = 0, edT = 0, panelT = 0;
+function frame(now) {
+  const dtR = Math.min(0.1, (now - prev) / 1000); prev = now;
+  if (!S.paused && !S.black && !S.done) {
+    let sim = dtR * S.speed; const dt = 0.05;
+    acc += sim;
+    while (acc >= dt) {
+      // AGC shifts set-points of the regulating units each step
+      const shares = FLEETS.map(f => agcShare(f));
+      FLEETS.forEach((f, i) => S.u[f.id].set += shares[i]);
+      step(dt);
+      FLEETS.forEach((f, i) => S.u[f.id].set -= shares[i]);
+      acc -= dt;
+      edT += dt; if (edT > 300 && S.ed) { edT = 0; const keep = S.agcInt; dispatch(); S.agcInt = keep * 0.3; }
+      if (!S.hist.length || S.t - S.hist[S.hist.length - 1][0] > Math.max(0.5, S.speed / 60)) { S.hist.push([S.t, S.f, S.D, S.Pgen]); if (S.hist.length > 9000) S.hist.splice(0, 1000); }
+      if (S.t - S.lastMix > 300) { S.lastMix = S.t; S.mix.push([S.t / 3600, FLEETS.map(f => S.u[f.id].p), S.D]); }
+      if (S.black || S.done) break;
+    }
+  }
+  panelT += dtR; if (panelT > 0.12) { panelT = 0; panels(); }
+  drawGauge(); drawTraces(); drawMix();
+  requestAnimationFrame(frame);
+}
+newDay(0);
+// settle the opening state for a minute of simulated time so the day starts balanced
+for (let i = 0; i < 1200; i++) step(0.05);
+S.cost = 0; S.co2 = 0; S.energy = 0; S.outOfBand = 0; S.hist = [];
+requestAnimationFrame(t => { prev = t; frame(t); });
+window.__grid = { get S() { return S; }, step, fire, newDay };
+})();
+</script>
+</body>
+</html>

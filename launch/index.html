@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Launch to Orbit · Physics Sandbox</title>
+<meta name="description" content="Fly a two-stage rocket from the pad to orbit: gravity turn, max-Q, staging, closed-loop insertion. US Standard Atmosphere, Mach-dependent drag, rotating Earth, real orbital elements.">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/hud.css">
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script src="../shared/site.js" defer></script>
+<style>
+:root{--accent:#ff9f43}
+.big .stg{font:600 11px var(--mono);color:var(--accent)}
+#events{list-style:none;margin:4px 0 0;padding:0;max-height:150px;overflow:auto;font:11.5px/1.6 var(--mono)}
+#events li{display:flex;gap:8px;color:var(--mute)}#events li b{color:var(--ink);font-weight:500;min-width:52px}
+#events li.ok b{color:var(--ok)}#events li.warn b{color:var(--warn)}#events li.bad b{color:var(--bad)}
+#launchBtn.go{background:var(--accent);border-color:var(--accent);color:#1a0f02;font-weight:600}
+.inst{max-width:232px}
+</style>
+</head>
+<body>
+<canvas id="gl" tabindex="-1" aria-label="3D view: rocket ascending to orbit"></canvas>
+<div id="loading"><div class="lbox"><div class="ln">Launch to Orbit</div><div class="lb"><i></i></div><div class="lt">Loading NASA imagery…</div></div></div>
+<div class="hud">
+  <div class="top">
+    <a class="back" href="../">← Sandbox</a><span data-sitenav></span>
+    <h1>Launch to Orbit</h1>
+    <select id="scn" aria-label="Scenario"></select>
+    <button id="launchBtn" title="Restart the countdown">Restart</button>
+    <button id="camBtn" title="Cycle cameras (C)">Camera: Chase</button>
+    <button id="stageBtn" title="Stage separation (J)">Stage <span class="k">J</span></button>
+    <span class="sp"></span>
+    <button id="helpBtn" title="Help (H)">Help</button>
+    <button id="setBtn" class="icon" title="Settings" aria-label="Settings"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/></svg></button>
+  </div>
+  <div class="big"><div>T<b id="bT">—</b></div><div>ALTITUDE<b id="bAlt">—</b></div><div>SPEED<b id="bV">—</b></div><div>STAGE<b id="bS" class="stg">—</b></div></div>
+  <div class="call" id="call"></div>
+  <div class="panel left" id="tele"><div class="ph"><div class="sec">Vehicle</div><button class="col" aria-label="Collapse panel">–</button></div><div class="pb" id="teleB"></div></div>
+  <div class="panel right" id="right"><div class="ph"><div class="sec">Ascent profile</div><button class="col" aria-label="Collapse panel">–</button></div>
+    <div class="pb"><canvas class="inst" id="prof" width="464" height="300" style="aspect-ratio:464/300"></canvas><div class="sec">Orbit</div><canvas class="inst" id="orb" width="464" height="380" style="aspect-ratio:464/380"></canvas><div class="sec">Events</div><ul id="events"></ul></div></div>
+  <div class="bottom">
+    <div class="chips" id="chips"></div>
+    <div class="keys"><kbd>W</kbd><kbd>S</kbd> pitch · <kbd>A</kbd><kbd>D</kbd> heading · <kbd>↑</kbd><kbd>↓</kbd> throttle · <kbd>Z</kbd> full · <kbd>X</kbd> cut-off · <kbd>J</kbd> stage · <kbd>F</kbd> fairing<br><kbd>T</kbd> autopilot · <kbd>P</kbd> prograde hold · <kbd>C</kbd> camera · <kbd>[</kbd><kbd>]</kbd> warp · <kbd>Space</kbd> pause · drag to look</div>
+  </div>
+  <div id="msg" class="modal" role="dialog" aria-live="polite"></div>
+  <div id="help" class="modal" role="dialog" aria-label="Help">
+    <h2>Getting to orbit</h2>
+    <p>A two-stage kerosene/LOX launcher of Falcon 9 proportions: nine 845 kN engines on the first stage (282 s at sea level, 311 s in vacuum), one 981 kN vacuum engine (348 s) on the second. The air is the <b>US Standard Atmosphere 1976</b>, drag uses a Mach-dependent coefficient with the transonic peak, the Earth rotates (the pad already moves east at ~400 m/s at Cape Canaveral) and the orbit shown is computed from the real state vector.</p>
+    <div class="cols">
+      <div><h3>Flying</h3><table>
+        <tr><td>W / S</td><td>Pitch toward / away from the horizon</td></tr>
+        <tr><td>A / D</td><td>Heading left / right</td></tr>
+        <tr><td>↑ ↓ · Z · X</td><td>Throttle · full · engine cut-off</td></tr>
+        <tr><td>J · F</td><td>Stage separation · fairing jettison</td></tr>
+        <tr><td>P</td><td>Prograde hold — fly a zero-angle-of-attack gravity turn</td></tr>
+        <tr><td>T</td><td>Autopilot — full ascent guidance (any manual input takes over)</td></tr></table></div>
+      <div><h3>View &amp; time</h3><table>
+        <tr><td>C</td><td>Cameras: chase, pad tracking, onboard, free</td></tr>
+        <tr><td>Drag · wheel</td><td>Orbit / look around · zoom</td></tr>
+        <tr><td>[ / ]</td><td>Time warp (1× at events)</td></tr>
+        <tr><td>Space · Shift</td><td>Pause · fine control</td></tr></table>
+        <h3>Limits</h3><p>Aerodynamic load q·α ≤ 150 kPa·°, acceleration ≤ 6 g, fairing off only when q &lt; 1 kPa. Stage with the first-stage engines shut down.</p></div>
+    </div>
+    <p><b>How it's done:</b> rise vertically, kick over a few degrees toward the launch azimuth at ~60 m/s, then hold prograde and let gravity turn you. Throttle back through max-Q (~30 kPa near Mach 1.3), stage at depletion, and on the second stage pitch so the climb rate dies away as you reach orbital speed — the yellow flight-director cue shows the pitch the guidance would fly.</p>
+    <p class="note">Earth: NASA Blue Marble &amp; Black Marble with a single-scattering atmosphere. Vehicle numbers are representative, not a specific mission.</p>
+    <div class="btns"><button id="helpClose" class="primary">Close</button></div>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { createRenderer, AdaptiveResolution, makeEnvironment, makeStars, makeSunGlare, mountSettings, FpsMeter, loadingStep, loadingDone, loadTexture, preset, onSettings, Readout, chips as setChips, camHint, modal, mergeStatic } from '../shared/three/kit.js';
+import { CamRig } from '../shared/three/camrig.js';
+import { EarthView, eciToEcef, sunTransmittance, atmosphere, R_EARTH, OMEGA_EARTH, MU_EARTH } from '../shared/three/earth.js';
+import { installTouch } from '../shared/touch.js';
+import { buildRocket, buildPad } from './rocket.js';
+
+const MU = MU_EARTH, RE = R_EARTH, OM = OMEGA_EARTH, G0 = 9.80665, P0 = 101325;
+const D2R = Math.PI / 180, R2D = 180 / Math.PI;
+const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
+const ST1 = { dry: 25600, prop: 395700, Tsl: 7607e3, Tvac: 8227e3, Isl: 282, Ivac: 311, min: 0.57 };
+const ST2 = { dry: 3900, prop: 92670, Tsl: 0, Tvac: 981e3, Isl: 0, Ivac: 348, min: 0.39 };
+const FAIRING = 1900;
+const CD = [[0, 0.3], [0.8, 0.32], [1.05, 0.55], [1.3, 0.5], [2, 0.38], [3, 0.3], [5, 0.24], [10, 0.22]];
+const cdAt = M => { for (let i = 1; i < CD.length; i++) if (M < CD[i][0]) { const [a, ca] = CD[i - 1], [b, cb] = CD[i]; return ca + (cb - ca) * (M - a) / (b - a); } return 0.22; };
+
+// ---------- scenarios ----------
+const SITES = { cape: { name: 'Cape Canaveral LC-39A', lat: 28.6082, lon: -80.6041, sea: [1, 0] }, vafb: { name: 'Vandenberg SLC-4E', lat: 34.632, lon: -120.611, sea: [-1, -0.4] } };
+const SCN = [
+  { name: 'Space-station resupply · 210 km, 51.6°', site: 'cape', alt: 210e3, inc: 51.6, payload: 13000, hour: 10.5, auto: true },
+  { name: 'Heavy LEO · 15.6 t to 280 km, 53°', site: 'cape', alt: 280e3, inc: 53, payload: 15600, hour: 15.2, auto: true },
+  { name: 'Polar · 600 km sun-synchronous from Vandenberg', site: 'vafb', alt: 600e3, inc: 97.8, payload: 7000, hour: 7.1, auto: true },
+  { name: 'Night launch · 300 km due east', site: 'cape', alt: 300e3, inc: 28.6, payload: 10000, hour: 23.4, auto: true },
+  { name: 'Manual challenge · fly it yourself (200 km, 28.6°)', site: 'cape', alt: 200e3, inc: 28.6, payload: 9000, hour: 12.8, auto: false },
+];
+const sel = document.getElementById('scn'); SCN.forEach((s, i) => sel.add(new Option(s.name, i)));
+
+// ---------- renderer / scene ----------
+const canvas = document.getElementById('gl');
+const renderer = createRenderer(canvas, { shadows: true, exposure: 0.95 });
+const adaptive = new AdaptiveResolution(renderer, () => resize());
+const fps = new FpsMeter();
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, 1, 0.5, 6e7);
+const rig = new CamRig(canvas, camera, { maxZoom: 80, minZoom: 0.1 });
+const sun = new THREE.DirectionalLight(0xffffff, 3.2);
+sun.castShadow = true; Object.assign(sun.shadow.camera, { left: -60, right: 60, top: 60, bottom: -60, near: 1, far: 600 }); sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.05;
+scene.add(sun, sun.target);
+const hemi = new THREE.HemisphereLight(0x87a8d8, 0x3a4a5a, 0.6); scene.add(hemi);
+const applyShadow = () => { const p = preset(); sun.shadow.mapSize.set(p.shadowMap, p.shadowMap); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } };
+applyShadow(); onSettings(applyShadow);
+const stars = makeStars({ count: 7000, radius: 3e7 }); scene.add(stars);
+const glare = makeSunGlare(0.5); scene.add(glare);
+let earth = null;
+
+// ---------- vehicle ----------
+const R = buildRocket();
+const vehicle = new THREE.Group(); scene.add(vehicle);
+vehicle.add(R.s1, R.s2, ...R.fair);
+const engLight = new THREE.PointLight(0xffb070, 0, 400, 1.6); engLight.position.y = -8; vehicle.add(engLight);
+// exhaust plumes: one shader handles sea-level (narrow, sooty, shock diamonds) to vacuum (huge, faint)
+function plumeMaterial(core) {
+  return new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    uniforms: { uExp: { value: 0 }, uK: { value: 0 }, uT: { value: 0 }, uCore: { value: new THREE.Color(core) } },
+    vertexShader: `uniform float uExp; varying float vY; varying vec3 vN; varying vec3 vV; varying float vR;
+      void main(){ vY = -position.y; vR = length(position.xz);
+        vec3 p = position; float w = mix(1. + vY * .08, 1. + vY * 1.2, uExp); p.xz *= w;
+        vec4 mv = modelViewMatrix * vec4(p, 1.); vN = normalize(normalMatrix * vec3(normal.x, normal.y * .3, normal.z)); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`,
+    fragmentShader: `uniform float uExp, uK, uT; uniform vec3 uCore; varying float vY; varying vec3 vN; varying vec3 vV;
+      void main(){ float L = mix(1., 3.5, uExp); float y = vY / (40. * L);
+        float rim = pow(abs(dot(vN, vV)), mix(1.2, 2.5, uExp));
+        float fall = exp(-y * mix(2.6, 1.4, uExp));
+        float diamonds = 1. + (1. - uExp) * 1.2 * smoothstep(.6, 1., sin(y * 38. - uT * 2.)) * exp(-y * 2.5);
+        vec3 c = mix(uCore, vec3(1., .55, .2), smoothstep(0., .6, y) * (1. - uExp));
+        c = mix(c, vec3(.6, .7, 1.), uExp * smoothstep(0., .5, y));
+        float a = uK * rim * fall * diamonds * mix(1., .25, uExp);
+        gl_FragColor = vec4(c * a, 1.); }`,
+  });
+}
+const plumeG = new THREE.CylinderGeometry(1.6, 0.9, 40, 32, 24, true); plumeG.translate(0, -20, 0);
+const plume1 = new THREE.Mesh(plumeG, plumeMaterial(0xfff1c8)); plume1.position.y = -0.2; plume1.frustumCulled = false; R.s1.add(plume1);
+const plumeG2 = new THREE.CylinderGeometry(2.4, 1.5, 40, 32, 24, true); plumeG2.translate(0, -20, 0);
+const plume2 = new THREE.Mesh(plumeG2, plumeMaterial(0xe8f0ff)); plume2.position.y = 37.3; plume2.frustumCulled = false; R.s2.add(plume2);
+plume1.userData.dynamic = plume2.userData.dynamic = true;
+
+// launch pad (+ smoke) in a local east-up-south frame at the pad
+const pad = buildPad(); scene.add(pad);
+const ground = (() => {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 1024; const c = cv.getContext('2d');
+  c.fillStyle = '#5d6a45'; c.fillRect(0, 0, 1024, 1024);
+  for (let i = 0; i < 2600; i++) { const x = Math.random() * 1024, y = Math.random() * 1024, r = 4 + Math.random() * 26; c.fillStyle = `rgba(${40 + Math.random() * 60},${60 + Math.random() * 50},${30 + Math.random() * 30},${0.25 + Math.random() * 0.35})`; c.beginPath(); c.arc(x, y, r, 0, 7); c.fill(); }
+  c.strokeStyle = '#8f8c84'; c.lineWidth = 5; c.beginPath(); c.moveTo(512, 512); c.lineTo(512, 1024); c.moveTo(512, 760); c.lineTo(130, 980); c.stroke();
+  c.fillStyle = '#a8a59d'; c.beginPath(); c.arc(512, 512, 30, 0, 7); c.fill();
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t;
+})();
+const groundMat = new THREE.ShaderMaterial({
+  transparent: false, depthWrite: false, depthTest: false, blending: THREE.CustomBlending, blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor, uniforms: { map: { value: ground }, sea: { value: new THREE.Vector2(1, 0) }, light: { value: new THREE.Color(1, 1, 1) } },
+  vertexShader: 'varying vec2 vUv; varying vec2 vP; void main(){ vUv = uv; vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }',
+  fragmentShader: `uniform sampler2D map; uniform vec2 sea; uniform vec3 light; varying vec2 vUv; varying vec2 vP;
+    void main(){ vec3 c = texture2D(map, vUv).rgb; float d = length(vP); float s = dot(vP, normalize(sea)) - 1400.;
+      vec3 water = vec3(.05,.13,.2); c = mix(c, vec3(.75,.7,.58), smoothstep(-90., 0., s) * (1. - smoothstep(0., 60., s))); c = mix(c, water, smoothstep(30., 80., s));
+      gl_FragColor = vec4(c * light, 1. - smoothstep(2200., 3000., d));
+      #include <colorspace_fragment>
+    }`,
+});
+const groundMesh = new THREE.Mesh(new THREE.CircleGeometry(3000, 64), groundMat); groundMesh.rotation.x = -Math.PI / 2; groundMesh.position.y = 0; groundMesh.renderOrder = -9; groundMesh.frustumCulled = false; pad.add(groundMesh);
+const SMOKE_N = 900, smPos = new Float32Array(SMOKE_N * 3), smVel = new Float32Array(SMOKE_N * 3), smAge = new Float32Array(SMOKE_N).fill(99), smSize = new Float32Array(SMOKE_N);
+const smGeo = new THREE.BufferGeometry(); smGeo.setAttribute('position', new THREE.BufferAttribute(smPos, 3)); smGeo.setAttribute('size', new THREE.BufferAttribute(smSize, 1));
+const smoke = new THREE.Points(smGeo, new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, uniforms: { light: { value: new THREE.Color(1, 1, 1) }, scale: { value: 600 } },
+  vertexShader: 'attribute float size; uniform float scale; varying float vA; void main(){ vec4 mv = modelViewMatrix * vec4(position,1.); gl_PointSize = min(900., size * scale / -mv.z); vA = clamp(size, 0., 1.); gl_Position = projectionMatrix * mv; }',
+  fragmentShader: 'uniform vec3 light; void main(){ vec2 p = gl_PointCoord * 2. - 1.; float d = dot(p,p); if (d > 1.) discard; float a = (1. - d) * .55; gl_FragColor = vec4(light * mix(.75, 1., p.y * .5 + .5), a); }',
+}));
+smoke.frustumCulled = false; pad.add(smoke);
+let smHead = 0;
+
+// ---------- state ----------
+const S = {
+  r: V3(), v: V3(), t: -10, met: -10, theta0: 0, phase: 'count', stage: 1, prop1: 0, prop2: 0, fairing: true, payload: 0,
+  thr: 0, thrCmd: 1, pitch: 90, head: 90, pitchCmd: 90, headCmd: 90, auto: true, pro: false, warp: 1, paused: false, cam: 0,
+  engine: false, sepT: 0, sesT: 0, maxQ: 0, maxQdone: false, bucket: false, result: null, log: [], prof: [], az: 90,
+  q: 0, mach: 0, aoa: 0, qa: 0, gload: 1, dr: 0, alt: 0, vs: 0, el: null, prog: [75, 28],
+};
+const booster = { on: false, r: V3(), v: V3(), q: new THREE.Quaternion(), w: V3(), t: 0 };
+const fairings = [0, 1].map(() => ({ on: false, r: V3(), v: V3(), q: new THREE.Quaternion(), w: V3(), t: 0 }));
+let site = SITES.cape, sunECI = V3(1, 0, 0);
+function padECEF(out = V3()) { const la = site.lat * D2R, lo = site.lon * D2R; return out.set(Math.cos(la) * Math.cos(lo), Math.cos(la) * Math.sin(lo), Math.sin(la)).multiplyScalar(RE); }
+const ecefToEci = (th, p, out = V3()) => out.set(Math.cos(th) * p.x - Math.sin(th) * p.y, Math.sin(th) * p.x + Math.cos(th) * p.y, p.z);
+const theta = () => S.theta0 + OM * S.t;
+function enuAt(rE, out) { const up = rE.clone().normalize(), east = V3(-up.y, up.x, 0).normalize(), north = up.clone().cross(east); out.up = up; out.east = east; out.north = north; return out; }
+function loadScenario(i) {
+  const s = SCN[i]; S.scn = s; site = SITES[s.site];
+  S.t = -10; S.met = -10; S.theta0 = 1.3; S.phase = 'count'; S.stage = 1; S.prop1 = ST1.prop; S.prop2 = ST2.prop; S.fairing = true; S.payload = s.payload;
+  S.thr = 0; S.thrCmd = 1; S.pitch = S.pitchCmd = 90; S.auto = s.auto; S.pro = false; S.warp = 1; S.engine = false; S.result = null; S.maxQ = 0; S.maxQdone = false; S.bucket = false; S.bucketT = 0;
+  S.log = []; S.prof = []; S.el = null; S.sepT = 0; S.sesT = 0; S.secoAt = 0; S.g2 = null; S.tgo = 0;
+  const kA = THREE.MathUtils.clamp((s.alt - 200e3) / 400e3, 0, 1); S.prog = [62 + 8 * kA, 22 + 5 * kA];   // loft more for higher orbits
+  // launch azimuth for the target inclination, corrected for the pad's eastward velocity
+  const la = site.lat * D2R, cosI = Math.cos(s.inc * D2R), sAz = Math.max(-1, Math.min(1, cosI / Math.cos(la)));
+  let az = Math.asin(sAz); if (s.inc > 90) az = Math.PI - az;      // retrograde: launch toward the south-west... via north-west mirror
+  if (s.site === 'vafb') az = Math.PI - Math.asin(sAz);             // Vandenberg launches south over the ocean
+  const vo = Math.sqrt(MU / (RE + s.alt)), ve = OM * RE * Math.cos(la);
+  S.az = Math.atan2(vo * Math.sin(az) - ve, vo * Math.cos(az)) * R2D; S.head = S.headCmd = S.az;
+  // sun position for the scenario's local solar time (equinox)
+  const lst = S.theta0 + site.lon * D2R, H = (s.hour - 12) * 15 * D2R, alpha = lst - H;
+  sunECI.set(Math.cos(alpha), Math.sin(alpha), 0.15).normalize();
+  const pE = padECEF().multiplyScalar(1 + 5 / RE); ecefToEci(S.theta0 + OM * S.t, pE, S.r); S.v.set(-OM * S.r.y, OM * S.r.x, 0);
+  booster.on = false; fairings.forEach(f => f.on = false);
+  R.s1.visible = true; R.fair.forEach(f => f.visible = true); vehicle.add(R.s1, ...R.fair);
+  R.s1.position.set(0, 0, 0); R.s1.quaternion.identity(); R.fair.forEach(f => { f.position.set(0, 0, 0); f.quaternion.identity(); });
+  smAge.fill(99); groundMat.uniforms.sea.value.set(...site.sea);
+  document.getElementById('events').innerHTML = '';
+  modal(document.getElementById('msg'), false);
+  event('T−10 s · terminal count', '');
+  setCam(S.cam, true);
+}
+function event(text, cls = '') {
+  const li = document.createElement('li'); li.className = cls; li.innerHTML = `<b>${S.met < 0 ? 'T−' + Math.ceil(-S.met) : 'T+' + fmtT(S.met)}</b><span>${text}</span>`;
+  const ul = document.getElementById('events'); ul.prepend(li);
+}
+const fmtT = t => { t = Math.max(0, t); const m = Math.floor(t / 60), s = Math.floor(t % 60); return `${m}:${String(s).padStart(2, '0')}`; };
+
+// ---------- input ----------
+const keys = new Set();
+const WARPS = [1, 2, 5, 10];
+let callTxt = '', callT = 0;
+function call(txt, cls = 'warn', t = 3) { callTxt = `<span class="${cls}">${txt}</span>`; callT = t; }
+function manual() { if (S.auto) { S.auto = false; call('AUTOPILOT DISENGAGED · manual control', 'warn'); event('Autopilot disengaged', 'warn'); } }
+addEventListener('keydown', e => {
+  if (e.target.tagName === 'SELECT' || e.ctrlKey || e.metaKey || e.altKey) return;
+  keys.add(e.code);
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
+  if (['KeyW', 'KeyS', 'KeyA', 'KeyD', 'ArrowUp', 'ArrowDown'].includes(e.code) && S.phase !== 'count') { manual(); S.pro = e.code.startsWith('Arrow') ? S.pro : false; }
+  if (e.repeat) return;
+  switch (e.code) {
+    case 'Space': S.paused = !S.paused; break;
+    case 'KeyZ': manual(); S.thrCmd = 1; break;
+    case 'KeyX': manual(); cutoff('commanded'); break;
+    case 'KeyJ': stage(); break;
+    case 'KeyF': jettisonFairing(); break;
+    case 'KeyT': S.auto = !S.auto; if (S.auto) S.pro = false; call(S.auto ? 'AUTOPILOT ENGAGED' : 'AUTOPILOT OFF', S.auto ? 'ok' : 'warn'); break;
+    case 'KeyP': S.pro = !S.pro; if (S.pro) S.auto = false; break;
+    case 'KeyC': setCam((S.cam + 1) % 4); break;
+    case 'KeyH': toggleHelp(); break;
+    case 'Escape': if (help.classList.contains('show')) toggleHelp(); break;
+    case 'BracketRight': S.warp = WARPS[Math.min(WARPS.length - 1, WARPS.indexOf(S.warp) + 1)]; break;
+    case 'BracketLeft': S.warp = WARPS[Math.max(0, WARPS.indexOf(S.warp) - 1)]; break;
+    case 'Enter': if (S.result) loadScenario(+sel.value); break;
+  }
+});
+addEventListener('keyup', e => keys.delete(e.code));
+addEventListener('blur', () => keys.clear());
+const CAMS = ['Chase', 'Pad tracking', 'Onboard', 'Free'];
+function setCam(i, keep = false) {
+  S.cam = i; document.getElementById('camBtn').textContent = 'Camera: ' + CAMS[i];
+  camera.fov = i === 2 ? 70 : i === 1 ? 30 : 50; camera.zoom = 1; camera.updateProjectionMatrix();
+  rig.setMode(i === 1 || i === 2 ? 'look' : 'orbit', { pitchMin: -1.45, pitchMax: 1.45 });
+  if (!keep) camHint();
+}
+document.getElementById('camBtn').onclick = () => setCam((S.cam + 1) % 4);
+document.getElementById('launchBtn').onclick = () => loadScenario(+sel.value);
+document.getElementById('stageBtn').onclick = () => stage();
+sel.onchange = () => { loadScenario(+sel.value); sel.blur(); };
+const help = document.getElementById('help');
+function toggleHelp() { modal(help, !help.classList.contains('show')); }
+document.getElementById('helpBtn').onclick = toggleHelp; document.getElementById('helpClose').onclick = toggleHelp;
+mountSettings(document.getElementById('setBtn'));
+document.querySelectorAll('.panel .col').forEach(b => b.onclick = () => { const p = b.closest('.panel'); p.classList.toggle('min'); b.textContent = p.classList.contains('min') ? '+' : '–'; });
+installTouch({
+  sticks: [{ side: 'l', label: 'PITCH · HEADING', x: ['KeyA', 'KeyD'], y: ['KeyS', 'KeyW'] }, { side: 'r', label: 'THROTTLE', y: ['ArrowUp', 'ArrowDown'] }],
+  buttons: [{ label: 'STAGE', code: 'KeyJ' }, { label: 'FAIRING', code: 'KeyF' }, { label: 'AUTO', code: 'KeyT' }, { label: 'PROGRADE', code: 'KeyP', side: 'l' }, { label: 'CAM', code: 'KeyC', side: 'l' }],
+});
+
+// ---------- vehicle model helpers ----------
+const st = () => S.stage === 1 ? ST1 : ST2;
+function mass() { return (S.stage === 1 ? ST1.dry + S.prop1 : 0) + ST2.dry + S.prop2 + (S.fairing ? FAIRING : 0) + S.payload; }
+function cutoff(why) {
+  if (!S.engine) return;
+  S.engine = false; S.thr = 0;
+  event(S.stage === 1 ? `MECO · main-engine cut-off (${why})` : `SECO · second-engine cut-off (${why})`, 'ok');
+  call(S.stage === 1 ? 'MECO' : 'SECO', 'ok');
+  if (S.stage === 1 && S.auto) S.sepT = S.met + 3;
+  if (S.stage === 2) S.secoAt = S.met;
+}
+function stage() {
+  if (S.stage !== 1 || S.phase === 'count' || S.result) return;
+  if (S.engine && S.thr > 0.05) return fail('Stage separation with the first-stage engines running', ['the stages re-contacted and the vehicle broke up']);
+  S.stage = 2; S.engine = false;
+  booster.on = true; booster.r.copy(S.r); booster.v.copy(S.v).addScaledVector(attDir(), -1.2); booster.q.copy(vehicle.quaternion); booster.w.set(0.02, 0, 0.05); booster.t = 0;
+  scene.add(R.s1);
+  event('Stage separation', 'ok'); call('STAGE SEPARATION', 'ok');
+  S.sesT = S.met + 4; S.thrCmd = 1;
+}
+function jettisonFairing() {
+  if (!S.fairing || S.phase === 'count' || S.result) return;
+  if (S.q > 1000) return fail('Fairing jettisoned inside the atmosphere', [`dynamic pressure ${(S.q / 1000).toFixed(1)} kPa (limit 1 kPa) — payload lost`]);
+  S.fairing = false;
+  const side = V3(1, 0, 0).applyQuaternion(vehicle.quaternion);
+  fairings.forEach((f, i) => { f.on = true; f.t = 0; f.r.copy(S.r); f.v.copy(S.v).addScaledVector(side, i ? -2.5 : 2.5); f.q.copy(vehicle.quaternion); f.w.set(0, 0, i ? 0.25 : -0.25); scene.add(R.fair[i]); });
+  event('Fairing separation', 'ok'); call('FAIRING SEPARATION', 'ok');
+}
+function fail(title, why) {
+  if (S.result) return;
+  S.result = { ok: false }; S.engine = false; S.thr = 0;
+  event(title, 'bad');
+  showResult(false, title, why);
+}
+// attitude direction from pitch (above local horizontal) and heading (from north, clockwise)
+const _enu = {}, _ad = V3();
+function attDir(out = _ad, pitch = S.pitch, head = S.head) {
+  enuAt(S.r, _enu); const cp = Math.cos(pitch * D2R), sp = Math.sin(pitch * D2R), ch = Math.cos(head * D2R), sh = Math.sin(head * D2R);
+  return out.set(0, 0, 0).addScaledVector(_enu.north, cp * ch).addScaledVector(_enu.east, cp * sh).addScaledVector(_enu.up, sp);
+}
+function elements(r, v) {
+  const rm = r.length(), vm2 = v.lengthSq(), eps = vm2 / 2 - MU / rm, h = r.clone().cross(v), hm = h.length();
+  const ev = v.clone().cross(h).divideScalar(MU).sub(r.clone().divideScalar(rm)), e = ev.length();
+  const a = -MU / (2 * eps), p = hm * hm / MU;
+  const rp = p / (1 + e), ra = e < 1 ? p / (1 - e) : Infinity;
+  return { a, e, ev, h, hm, rp, ra, inc: Math.acos(Math.max(-1, Math.min(1, h.z / hm))) * R2D, p };
+}
+
+// ---------- guidance ----------
+// S1: vertical rise, roll to azimuth, pitch kick at 60 m/s, then zero-AoA gravity turn with a max-Q bucket.
+// S2: closed-loop: commands radial acceleration so h → target and ḣ → 0 as horizontal speed reaches circular.
+const _vr = V3(), _hv = V3();
+function guidance() {
+  const s = S.scn, rm = S.r.length(), up = _enu.up, vRel = _vr.copy(S.v).sub(V3(-OM * S.r.y, OM * S.r.x, 0));
+  const alt = rm - RE, vs = S.v.dot(up);
+  let pitch = 90, head = S.az, thr = 1;
+  if (S.stage === 1) {
+    const vsurf = vRel.length();
+    // closed-loop flight-path-angle programme: γ*(h) falls from 90° to S.prog[1] at S.prog[0] km; the pitch
+    // command steers γ toward it with an angle of attack limited so that q·α stays well inside the structural limit
+    const hk = alt / 1000, gT = 90 - (90 - S.prog[1]) * Math.pow(THREE.MathUtils.clamp(hk / S.prog[0], 0, 1), 0.55);
+    if (vsurf > 40) {
+      const h = vRel.clone().addScaledVector(up, -vRel.dot(up)), gam = Math.atan2(vRel.dot(up), h.length()) * R2D, amax = Math.min(7, 55 / Math.max(1, S.q / 1000));
+      pitch = gam + THREE.MathUtils.clamp(2 * (gT - gam), -amax, amax);
+      if (vsurf < 90) pitch = Math.min(pitch, 90 - 2.5 * (vsurf - 40) / 50);   // initial kick
+      if (h.length() > 5) head = Math.atan2(h.dot(_enu.east), h.dot(_enu.north)) * R2D;
+    }
+    if (S.q > 26000 && !S.maxQdone && !S.bucketT) { S.bucket = true; S.bucketT = S.met; }
+    if (S.bucket && ((S.q < 22000 && S.maxQdone) || S.met - S.bucketT > 22)) S.bucket = false;
+    thr = S.bucket ? 0.72 : 1;
+    const a = thrustNow(1) / mass(); if (a > 4.5 * G0) thr = Math.max(ST1.min, 4.5 * G0 / a);
+  } else {
+    // velocity-to-be-gained steering in the horizontal (also flies out the plane error) + linear-sine radial steering:
+    // sinθ(t) = A + B·t chosen so that ṙ → 0 and r → r* exactly at burn-out (first-order PEG)
+    const rT = RE + s.alt, vc = Math.sqrt(MU / rT), hvec = _hv.copy(S.v).addScaledVector(up, -vs);
+    const lat = Math.asin(THREE.MathUtils.clamp(S.r.z / rm, -1, 1)), sAz = THREE.MathUtils.clamp(Math.cos(s.inc * D2R) / Math.cos(lat), -1, 1);
+    const north = hvec.dot(_enu.north) >= 0, azi = north ? Math.asin(sAz) : Math.PI - Math.asin(sAz);
+    const dH = _enu.north.clone().multiplyScalar(Math.cos(azi)).addScaledVector(_enu.east, Math.sin(azi));
+    const vgo = dH.multiplyScalar(vc).sub(hvec), dvh = vgo.length(); vgo.normalize();
+    const ve = ST2.Ivac * G0, mdot = ST2.Tvac / (ST2.Ivac * G0), tau = mass() / mdot;
+    const gEff = 0.5 * (MU / (rm * rm) - hvec.lengthSq() / rm);       // averaged: zero once circular
+    let A = 0, B = 0, tgo = 0, cosAvg = 1;
+    for (let it = 0; it < 3; it++) {
+      tgo = THREE.MathUtils.clamp(tau * (1 - Math.exp(-dvh / cosAvg / ve)), 2, 0.98 * tau);
+      const b0 = -ve * Math.log(1 - tgo / tau), b1 = b0 * tau - ve * tgo, c0 = b0 * tgo - b1, c1 = c0 * tau - ve * tgo * tgo / 2;
+      const r1 = -vs + gEff * tgo, r2 = rT - rm - vs * tgo + gEff * tgo * tgo / 2, det = b0 * c1 - b1 * c0;
+      A = (r1 * c1 - b1 * r2) / det; B = (b0 * r2 - c0 * r1) / det;
+      cosAvg = Math.max(0.5, Math.cos(Math.asin(THREE.MathUtils.clamp(A + B * tgo / 2, -0.9, 0.9))));
+    }
+    if (tgo > 6) S.g2 = A; const sth = THREE.MathUtils.clamp(S.g2 ?? A, -0.6, 0.9);
+    pitch = Math.asin(sth) * R2D;
+    head = Math.atan2(vgo.dot(_enu.east), vgo.dot(_enu.north)) * R2D;
+    S.tgo = tgo;
+    thr = 1; const a = thrustNow(1) / mass(); if (a > 4.2 * G0) thr = Math.max(ST2.min, 4.2 * G0 / a);
+  }
+  return { pitch, head, thr };
+}
+function thrustNow(throttle) { const k = st(), p = atmosphere(S.alt).p; return throttle * Math.max(0, k.Tvac - (k.Tvac - k.Tsl) * p / P0 * (S.stage === 1 ? 1 : 3)); }
+
+// ---------- physics ----------
+const _g = V3(), _d = V3(), _a = V3(), _rel = V3(), _w = V3();
+function step(dt) {
+  S.t += dt; S.met += dt;
+  if (S.phase === 'count') {
+    // pad rotates with the Earth
+    ecefToEci(theta(), padECEF().multiplyScalar(1 + 5 / RE), S.r); S.v.set(-OM * S.r.y, OM * S.r.x, 0); S.alt = 5;
+    enuAt(S.r, _enu);
+    if (S.met >= -3 && !S.engine) { S.engine = true; S.thr = 0; event('Engine ignition', ''); call('IGNITION', 'warn', 2); }
+    if (S.engine) S.thr = Math.min(1, S.thr + dt / 2.2);
+    if (S.met >= 0 && S.engine && thrustNow(S.thr) > mass() * G0 * 1.05) { S.phase = 'fly'; event('Liftoff', 'ok'); call('LIFTOFF', 'ok'); }
+    if (S.engine) { S.prop1 -= S.thr * ST1.Tvac / (ST1.Ivac * G0) * dt; emitSmoke(dt, 1); }
+    return;
+  }
+  const rm = S.r.length(); S.alt = rm - RE;
+  enuAt(S.r, _enu);
+  const atm = atmosphere(S.alt);
+  _rel.copy(S.v).sub(_w.set(-OM * S.r.y, OM * S.r.x, 0));
+  const vrel = _rel.length();
+  S.mach = vrel / atm.a; S.q = 0.5 * atm.rho * vrel * vrel;
+  if (S.q > S.maxQ) S.maxQ = S.q; else if (!S.maxQdone && S.maxQ > 15000 && S.q < S.maxQ * 0.97) { S.maxQdone = true; event(`Max-Q · ${(S.maxQ / 1000).toFixed(1)} kPa`, 'warn'); call('MAX-Q', 'warn'); }
+  // commands
+  const fine = keys.has('ShiftLeft') || keys.has('ShiftRight'), k = c => keys.has(c) ? 1 : 0;
+  if (S.auto && !S.result) {
+    const g = guidance(); S.pitchCmd = g.pitch; S.headCmd = g.head; if (S.engine) S.thrCmd = g.thr;
+    if (S.stage === 1 && !S.engine && S.sepT && S.met >= S.sepT) { S.sepT = 0; stage(); }
+    if (S.fairing && S.alt > 110e3 && S.q < 50) jettisonFairing();
+  } else if (S.pro && vrel > 30) {
+    const h = _rel.clone().addScaledVector(_enu.up, -_rel.dot(_enu.up));
+    S.pitchCmd = Math.atan2(_rel.dot(_enu.up), h.length()) * R2D; S.headCmd = Math.atan2(h.dot(_enu.east), h.dot(_enu.north)) * R2D;
+  } else {
+    const r = (fine ? 0.4 : 2.2) * dt;
+    S.pitchCmd = THREE.MathUtils.clamp(S.pitchCmd - (k('KeyW') - k('KeyS')) * r, -30, 90);
+    S.headCmd += (k('KeyD') - k('KeyA')) * r;
+  }
+  if (!S.auto) S.thrCmd = THREE.MathUtils.clamp(S.thrCmd + (k('ArrowUp') - k('ArrowDown')) * 0.5 * dt, 0, 1);
+  // second-stage ignition after separation (ullage settled)
+  if (S.stage === 2 && !S.engine && S.sesT && S.met >= S.sesT && S.prop2 > 0) { S.sesT = 0; S.engine = true; S.thr = 0.1; event('Second-stage ignition', 'ok'); call('SES-1 · MVAC IGNITION', 'ok'); }
+  // attitude follows the command at a rate limit
+  const rate = (S.stage === 1 ? 3 : 5) * dt;
+  S.pitch += THREE.MathUtils.clamp(S.pitchCmd - S.pitch, -rate, rate);
+  let dh = ((S.headCmd - S.head + 540) % 360) - 180; S.head += THREE.MathUtils.clamp(dh, -rate * 2, rate * 2);
+  // engine
+  const K = st(), prop = S.stage === 1 ? S.prop1 : S.prop2;
+  if (S.engine) {
+    const tc = S.thrCmd < 0.01 ? 0 : Math.max(K.min, S.thrCmd);
+    S.thr += (tc - S.thr) * Math.min(1, dt / 0.4);
+    if (prop <= 0) cutoff('propellant depleted');
+  }
+  const T = S.engine ? thrustNow(S.thr) : 0, mdot = S.engine ? S.thr * K.Tvac / (K.Ivac * G0) : 0;
+  if (S.stage === 1) S.prop1 = Math.max(0, S.prop1 - mdot * dt); else S.prop2 = Math.max(0, S.prop2 - mdot * dt);
+  const m = mass(), dir = attDir();
+  // forces: gravity, thrust, drag (cross-section of the fairing while attached)
+  _g.copy(S.r).multiplyScalar(-MU / (rm * rm * rm));
+  const area = S.fairing ? Math.PI * 2.6 * 2.6 : Math.PI * 1.83 * 1.83;
+  const D = S.q * cdAt(S.mach) * area;
+  _d.copy(_rel).multiplyScalar(vrel > 1e-3 ? -D / (vrel * m) : 0);
+  _a.copy(dir).multiplyScalar(T / m).add(_d);
+  S.gload = _a.length() / G0;
+  S.aoa = vrel > 20 ? Math.acos(THREE.MathUtils.clamp(dir.dot(_rel) / vrel, -1, 1)) * R2D : 0;
+  S.qa = S.q / 1000 * S.aoa;
+  S.v.addScaledVector(_a.add(_g), dt); S.r.addScaledVector(S.v, dt);
+  S.vs = S.v.dot(_enu.up);
+  if (S.engine && S.stage === 1 && S.alt < 800) emitSmoke(dt, 1 - S.alt / 800);
+  // limits
+  if (!S.result) {
+    if (S.qa > 150) fail('Structural failure — aerodynamic load', [`q·α = ${S.qa.toFixed(0)} kPa·° (limit 150) at ${(S.q / 1000).toFixed(1)} kPa and ${S.aoa.toFixed(1)}° angle of attack`]);
+    else if (S.gload > 6) fail('Structural failure — acceleration', [`${S.gload.toFixed(1)} g (limit 6)`]);
+    else if (S.alt < -5 && S.met > 1) fail('Impact', ['the vehicle came down before reaching orbit']);
+    // orbit / suborbital decisions
+    if (S.stage === 2 || !S.engine) {
+      S.el = elements(S.r, S.v);
+      if (S.auto && S.engine && S.stage === 2 && S.met > 30) {
+        const tgt = RE + S.scn.alt;
+        const eps = S.v.lengthSq() / 2 - MU / S.r.length();
+        if (eps > -MU / (2 * tgt) && S.el.rp > RE + 120e3) cutoff('guidance: target orbit');
+      }
+      if (S.secoAt && S.met > S.secoAt + 4) result();
+      if (!S.engine && S.stage === 2 && !S.sesT && S.prop2 <= 0 && S.el.rp < RE + 120e3 && S.vs < 0 && S.alt < 120e3) fail('Orbit not reached', [`second stage ran dry at ${(S.v.length() / 1000).toFixed(2)} km/s; perigee ${((S.el.rp - RE) / 1000).toFixed(0)} km`]);
+    }
+  }
+}
+function result() {
+  if (S.result) return;
+  const el = elements(S.r, S.v), s = S.scn, rp = (el.rp - RE) / 1000, ra = (el.ra - RE) / 1000, tgt = s.alt / 1000;
+  if (rp < 140) return fail('Suborbital — orbit not reached', [`perigee ${rp.toFixed(0)} km (needs ≥ 140 km to stay up)`, `apogee ${ra.toFixed(0)} km`]);
+  S.result = { ok: true };
+  const margin = S.prop2;
+  let score = Math.round(1000 - Math.abs(rp - tgt) * 4 - Math.abs(ra - tgt) * 2 - Math.abs(el.inc - s.inc) * 60 + margin / 60 - (s.auto && S.auto ? 150 : 0));
+  score = Math.max(100, score);
+  const grade = score > 950 ? 'Bullseye' : score > 800 ? 'Nominal' : score > 600 ? 'Good orbit' : 'Off-nominal';
+  event(`Orbit · ${rp.toFixed(0)} × ${ra.toFixed(0)} km, ${el.inc.toFixed(2)}°`, 'ok');
+  const m = document.getElementById('msg');
+  m.innerHTML = `<h2 class="ok">Orbit achieved</h2><div class="score"><b>${score}</b><span class="grade ok">${grade}</span></div>
+    ${S.auto ? '<p>Flown by the autopilot (−150). Try it yourself: press <b>T</b> after liftoff, or pick the manual challenge.</p>' : '<p>Hand-flown to orbit.</p>'}
+    <div class="row"><span>Perigee × apogee</span><b>${rp.toFixed(1)} × ${ra.toFixed(1)} km</b></div>
+    <div class="row"><span>Target</span><b>${tgt.toFixed(0)} km circular, ${s.inc}°</b></div>
+    <div class="row"><span>Inclination</span><b>${el.inc.toFixed(2)}°</b></div>
+    <div class="row"><span>Period</span><b>${(2 * Math.PI * Math.sqrt(el.a ** 3 / MU) / 60).toFixed(1)} min</b></div>
+    <div class="row"><span>Payload · S2 propellant left</span><b>${(s.payload / 1000).toFixed(1)} t · ${margin.toFixed(0)} kg</b></div>
+    <div class="row"><span>Max-Q</span><b>${(S.maxQ / 1000).toFixed(1)} kPa</b></div>
+    <div class="row"><span>Time to orbit</span><b>${fmtT(S.met)}</b></div>
+    <div class="btns"><button id="again" class="primary">Fly again (Enter)</button><button id="nextS">Next scenario</button></div>`;
+  modal(m, true);
+  document.getElementById('again').onclick = () => loadScenario(+sel.value);
+  document.getElementById('nextS').onclick = () => { sel.value = (+sel.value + 1) % SCN.length; loadScenario(+sel.value); };
+}
+function showResult(ok, title, why) {
+  const m = document.getElementById('msg');
+  m.innerHTML = `<h2 class="${ok ? 'ok' : 'bad'}">${title}</h2><p>${why.map(w => '• ' + w).join('<br>')}</p>
+    <div class="row"><span>Altitude · speed</span><b>${(S.alt / 1000).toFixed(1)} km · ${(S.v.length() / 1000).toFixed(2)} km/s</b></div>
+    <div class="row"><span>Mission time</span><b>T+${fmtT(S.met)}</b></div>
+    <div class="btns"><button id="again" class="primary">Retry (Enter)</button></div>`;
+  modal(m, true); document.getElementById('again').onclick = () => loadScenario(+sel.value);
+}
+// smoke from the flame trench (pad frame: x east, y up, z south; trench exits toward +z)
+function emitSmoke(dt, k) {
+  const n = Math.floor(160 * dt * k * (0.6 + Math.random()));
+  for (let i = 0; i < n; i++) {
+    const j = smHead = (smHead + 1) % SMOKE_N, a = (Math.random() - 0.5) * 1.6;
+    smPos[j * 3] = (Math.random() - 0.5) * 10; smPos[j * 3 + 1] = 2; smPos[j * 3 + 2] = 55 + Math.random() * 10;
+    const sp = 25 + Math.random() * 30; smVel[j * 3] = Math.sin(a) * sp; smVel[j * 3 + 1] = 4 + Math.random() * 8; smVel[j * 3 + 2] = Math.cos(a) * sp;
+    smAge[j] = 0;
+    if (Math.random() < 0.3) { smPos[j * 3 + 2] = -10 + Math.random() * 20; smVel[j * 3 + 2] *= -0.3; smVel[j * 3] *= 1.5; }
+  }
+}
+function updateSmoke(dt) {
+  for (let j = 0; j < SMOKE_N; j++) {
+    if (smAge[j] > 40) { smSize[j] = 0; continue; }
+    smAge[j] += dt; const d = Math.exp(-dt * 0.5);
+    smVel[j * 3] *= d; smVel[j * 3 + 2] *= d; smVel[j * 3 + 1] = smVel[j * 3 + 1] * d + 1.2 * dt;
+    smPos[j * 3] += smVel[j * 3] * dt; smPos[j * 3 + 1] += smVel[j * 3 + 1] * dt; smPos[j * 3 + 2] += smVel[j * 3 + 2] * dt;
+    smSize[j] = (8 + smAge[j] * 6) * (smAge[j] > 30 ? (40 - smAge[j]) / 10 : 1);
+  }
+  smGeo.attributes.position.needsUpdate = true; smGeo.attributes.size.needsUpdate = true;
+}
+function stepBodies(dt) {
+  if (booster.on) {
+    booster.t += dt; const rm = booster.r.length(), alt = rm - RE, atm = atmosphere(alt);
+    const rel = booster.v.clone().sub(V3(-OM * booster.r.y, OM * booster.r.x, 0)), vr = rel.length();
+    const a = booster.r.clone().multiplyScalar(-MU / rm ** 3).addScaledVector(rel, vr > 0 ? -0.5 * atm.rho * vr * 1.2 * 60 / 30000 : 0);
+    booster.v.addScaledVector(a, dt); booster.r.addScaledVector(booster.v, dt);
+    booster.q.multiply(new THREE.Quaternion().setFromAxisAngle(booster.w.clone().normalize(), booster.w.length() * dt));
+    if (booster.t > 120 || alt < 0) { booster.on = false; R.s1.visible = false; }
+  }
+  for (const f of fairings) if (f.on) { f.t += dt; const rm = f.r.length(); f.v.addScaledVector(f.r, -MU / rm ** 3 * dt); f.r.addScaledVector(f.v, dt); f.q.multiply(new THREE.Quaternion().setFromAxisAngle(f.w.clone().normalize(), f.w.length() * dt)); if (f.t > 90) { f.on = false; } }
+}
+
+// ---------- camera ----------
+const _bq = new THREE.Quaternion(), _m4 = new THREE.Matrix4(), _x = V3(), _z = V3(), _ctr = V3(), _eye = V3(), _hd = V3();
+function bodyQuat(dir, out) {
+  enuAt(S.r, _enu);
+  _hd.copy(_enu.north).multiplyScalar(Math.cos(S.head * D2R)).addScaledVector(_enu.east, Math.sin(S.head * D2R));
+  _x.copy(dir).cross(_hd); if (_x.lengthSq() < 1e-8) _x.copy(_enu.east); _x.normalize();
+  _z.copy(_x).cross(dir).normalize();
+  return out.setFromRotationMatrix(_m4.makeBasis(_x, dir, _z));
+}
+const CHASE = V3(80, -12, 35), FREE = V3(60, 10, 140), ONB = V3(2.15, 47.5, 0), DOWN = new THREE.Quaternion().setFromAxisAngle(V3(1, 0, 0), -Math.PI / 2 - 0.05);
+function updateCamera(dt) {
+  enuAt(S.r, _enu);
+  const top = S.stage === 1 ? 36 : 50;
+  _ctr.set(0, S.stage === 1 ? 30 : 48, 0).applyQuaternion(vehicle.quaternion);
+  if (S.cam === 0) rig.orbit(_ctr, vehicle.quaternion, CHASE, dt, { up: _enu.up });
+  else if (S.cam === 1) {
+    const pE = padECEF(), e = enuAt(pE, {});
+    const siteE = pE.clone().addScaledVector(e.east, -1800).addScaledVector(e.north, -1500).addScaledVector(e.up, 4);
+    const eye = ecefToEci(theta(), siteE).sub(S.r);
+    rig.track(eye, _ctr, _enu.up, dt);
+    const dist = eye.distanceTo(_ctr); camera.zoom = THREE.MathUtils.clamp(dist / 700, 1, 90) / rig.cz; camera.updateProjectionMatrix();
+  } else if (S.cam === 2) {
+    _bq.copy(vehicle.quaternion).multiply(DOWN);
+    rig.look(_eye.copy(ONB).setY(S.stage === 1 ? 40.5 : 47.5).applyQuaternion(vehicle.quaternion), _bq, dt);
+  } else {
+    _bq.setFromRotationMatrix(_m4.makeBasis(_enu.east, _enu.up, _enu.north.clone().negate()));
+    rig.orbit(_ctr, _bq, FREE, dt, { up: _enu.up });
+  }
+}
+
+// ---------- instruments ----------
+const pc = document.getElementById('prof').getContext('2d'), oc = document.getElementById('orb').getContext('2d');
+function drawProfile() {
+  const c = pc, W = 232, H = 150; c.setTransform(2, 0, 0, 2, 0, 0); c.clearRect(0, 0, W, H);
+  const pts = S.prof, maxX = Math.max(100, ...pts.map(p => p[0])) * 1.1, maxY = Math.max(S.scn.alt / 1000 * 1.25, ...pts.map(p => p[1]) );
+  const X = x => 26 + x / maxX * (W - 32), Y = y => H - 16 - y / maxY * (H - 26);
+  c.strokeStyle = 'rgba(255,255,255,.1)'; c.lineWidth = 1; c.beginPath(); c.moveTo(26, 6); c.lineTo(26, H - 16); c.lineTo(W - 4, H - 16); c.stroke();
+  c.setLineDash([4, 4]); c.strokeStyle = 'rgba(91,227,154,.5)'; c.beginPath(); c.moveTo(26, Y(S.scn.alt / 1000)); c.lineTo(W - 4, Y(S.scn.alt / 1000)); c.stroke(); c.setLineDash([]);
+  c.strokeStyle = '#ff9f43'; c.lineWidth = 2; c.beginPath(); pts.forEach((p, i) => i ? c.lineTo(X(p[0]), Y(p[1])) : c.moveTo(X(p[0]), Y(p[1]))); c.stroke();
+  for (const p of pts) if (p[2]) { c.fillStyle = '#e8ecef'; c.fillRect(X(p[0]) - 1.5, Y(p[1]) - 1.5, 3, 3); }
+  c.fillStyle = '#5d6873'; c.font = '9px JetBrains Mono'; c.fillText(`${maxY.toFixed(0)} km`, 2, 12); c.fillText('0', 16, H - 18); c.fillText(`${maxX.toFixed(0)} km downrange`, W - 110, H - 4); c.fillText('target', W - 36, Y(S.scn.alt / 1000) - 3);
+}
+function drawOrbit() {
+  const c = oc, W = 232, H = 190; c.setTransform(2, 0, 0, 2, 0, 0); c.clearRect(0, 0, W, H);
+  const el = S.el || elements(S.r, S.v), cx = W / 2, cy = H / 2 + 6;
+  const scale = (H / 2 - 18) / Math.max(RE * 1.08, Math.min(el.ra === Infinity ? RE * 3 : el.ra, RE * 3));
+  c.fillStyle = '#12304f'; c.beginPath(); c.arc(cx, cy, RE * scale, 0, 7); c.fill();
+  c.strokeStyle = 'rgba(124,200,255,.35)'; c.beginPath(); c.arc(cx, cy, (RE + 100e3) * scale, 0, 7); c.stroke();
+  c.setLineDash([3, 3]); c.strokeStyle = 'rgba(91,227,154,.5)'; c.beginPath(); c.arc(cx, cy, (RE + S.scn.alt) * scale, 0, 7); c.stroke(); c.setLineDash([]);
+  // orbit in its own plane: P = periapsis direction, Q = h × P
+  const hU = el.h.clone().normalize(), P = el.e > 1e-4 ? el.ev.clone().normalize() : S.r.clone().normalize(), Q = hU.clone().cross(P);
+  const rx = S.r.dot(P), ry = S.r.dot(Q), ang = Math.atan2(ry, rx), rot = -Math.PI / 2 - ang;   // keep the vehicle at the top
+  const tp = (x, y) => [cx + (x * Math.cos(rot) - y * Math.sin(rot)) * scale, cy + (x * Math.sin(rot) + y * Math.cos(rot)) * scale];
+  c.strokeStyle = '#ffc857'; c.lineWidth = 1.6; c.beginPath(); let first = true;
+  for (let i = 0; i <= 240; i++) { const nu = -Math.PI + i / 240 * 2 * Math.PI, r = el.p / (1 + el.e * Math.cos(nu)); if (r < RE || r < 0 || r > RE * 4) { first = true; continue; } const [x, y] = tp(r * Math.cos(nu), r * Math.sin(nu)); if (first) { c.moveTo(x, y); first = false; } else c.lineTo(x, y); }
+  c.stroke();
+  const [vx, vy] = tp(rx, ry); c.fillStyle = '#ff9f43'; c.beginPath(); c.arc(vx, vy, 3.5, 0, 7); c.fill();
+  c.fillStyle = '#8b97a3'; c.font = '9.5px JetBrains Mono';
+  c.fillText(`Ap ${el.ra === Infinity ? '∞' : ((el.ra - RE) / 1000).toFixed(0) + ' km'}`, 6, 12); c.fillText(`Pe ${((el.rp - RE) / 1000).toFixed(0)} km`, 6, 24);
+  c.fillText(`i ${el.inc.toFixed(1)}°`, W - 52, 12);
+}
+const tele = new Readout(document.getElementById('teleB'), [
+  { k: 'mode', label: 'Guidance' }, { k: 'thr', label: 'Throttle' }, { bar: 'thr' }, { k: 'tw', label: 'Thrust · TWR' }, { k: 'g', label: 'Acceleration' },
+  { k: 'p1', label: 'Stage 1 propellant' }, { bar: 'p1' }, { k: 'p2', label: 'Stage 2 propellant' }, { bar: 'p2' },
+  { sec: 'Aerodynamics' }, { k: 'mach', label: 'Mach' }, { k: 'q', label: 'Dynamic pressure' }, { k: 'qa', label: 'AoA · q·α' },
+  { sec: 'Trajectory' }, { k: 'att', label: 'Pitch · heading' }, { k: 'fd', label: 'Flight director' }, { k: 'fpa', label: 'Flight-path angle' }, { k: 'vs', label: 'Vertical speed' }, { k: 'vi', label: 'Inertial speed' }, { k: 'dr', label: 'Downrange' },
+  { sec: 'Orbit' }, { k: 'apo', label: 'Apogee · perigee' }, { k: 'inc', label: 'Inclination' }, { k: 'tgt', label: 'Target' },
+]);
+const chipsEl = document.getElementById('chips'), callEl = document.getElementById('call');
+const bT = document.getElementById('bT'), bAlt = document.getElementById('bAlt'), bV = document.getElementById('bV'), bS = document.getElementById('bS');
+function updateHUD(dt) {
+  const vrel = S.v.clone().sub(V3(-OM * S.r.y, OM * S.r.x, 0)), up = _enu.up;
+  const m = mass(), T = S.engine ? thrustNow(S.thr) : 0, el = S.el || elements(S.r, S.v);
+  bT.textContent = (S.met < 0 ? '−' : '+') + fmtT(Math.abs(S.met)); bAlt.textContent = S.alt < 1000 ? S.alt.toFixed(0) + ' m' : (S.alt / 1000).toFixed(1) + ' km';
+  bV.textContent = vrel.length() < 1000 ? vrel.length().toFixed(0) + ' m/s' : (vrel.length() / 1000).toFixed(2) + ' km/s'; bS.textContent = S.stage === 1 ? 'S1 · 9 eng' : S.engine ? 'S2 · MVac' : 'S2 coast';
+  tele.set('mode', S.auto ? 'AUTOPILOT' : S.pro ? 'Prograde hold' : 'Manual', S.auto ? 'ok' : S.pro ? 'warn' : '');
+  tele.set('thr', S.engine ? `${(S.thr * 100).toFixed(0)} %` : 'off'); tele.bar('thr', S.engine ? S.thr : 0, '');
+  tele.set('tw', `${(T / 1000).toFixed(0)} kN · ${(T / (m * G0)).toFixed(2)}`); tele.set('g', `${S.gload.toFixed(2)} g`, S.gload > 5 ? 'bad' : S.gload > 4 ? 'warn' : '');
+  tele.set('p1', S.stage === 1 ? `${(S.prop1 / 1000).toFixed(1)} t` : 'separated'); tele.bar('p1', S.stage === 1 ? S.prop1 / ST1.prop : 0, S.prop1 < 20000 ? 'var(--warn)' : '');
+  tele.set('p2', `${(S.prop2 / 1000).toFixed(1)} t`); tele.bar('p2', S.prop2 / ST2.prop, S.prop2 < 8000 ? 'var(--warn)' : '');
+  tele.set('mach', S.mach.toFixed(2)); tele.set('q', `${(S.q / 1000).toFixed(1)} kPa${S.maxQdone ? ` (max ${(S.maxQ / 1000).toFixed(1)})` : ''}`, S.q > 32000 ? 'warn' : '');
+  tele.set('qa', `${S.aoa.toFixed(1)}° · ${S.qa.toFixed(0)} kPa·°`, S.qa > 110 ? 'bad' : S.qa > 60 ? 'warn' : '');
+  tele.set('att', `${S.pitch.toFixed(1)}° · ${((S.head % 360) + 360) % 360 | 0}°`);
+  const g = S.phase === 'fly' ? guidance() : { pitch: 90 }; tele.set('fd', `${g.pitch.toFixed(1)}°`, Math.abs(g.pitch - S.pitch) < 3 ? 'ok' : 'warn');
+  const vh = vrel.clone().addScaledVector(up, -vrel.dot(up)).length(); tele.set('fpa', `${(Math.atan2(vrel.dot(up), vh) * R2D).toFixed(1)}°`);
+  tele.set('vs', `${S.vs.toFixed(0)} m/s`); tele.set('vi', `${(S.v.length() / 1000).toFixed(3)} km/s`);
+  const pE = padECEF().normalize(), cE = S.r.clone().applyMatrix3(eciToEcef(theta())).normalize(); S.dr = Math.acos(Math.min(1, pE.dot(cE))) * RE;
+  tele.set('dr', `${(S.dr / 1000).toFixed(0)} km`);
+  tele.set('apo', S.phase === 'fly' ? `${el.ra === Infinity ? '∞' : ((el.ra - RE) / 1000).toFixed(0)} · ${((el.rp - RE) / 1000).toFixed(0)} km` : '—', el.rp > RE + 140e3 ? 'ok' : '');
+  tele.set('inc', `${el.inc.toFixed(2)}°`); tele.set('tgt', `${(S.scn.alt / 1000).toFixed(0)} km · ${S.scn.inc}°`);
+  setChips(chipsEl, [['AUTOPILOT', S.auto], ['PROGRADE', S.pro], ['MAX-Q BUCKET', S.bucket, 'am'], [`WARP ${S.warp}×`, S.warp > 1, 'am'], S.paused && ['PAUSED', true, 'am'], S.fairing ? ['FAIRING ON', false] : ['FAIRING SEP', true, 'gn'], S.result && S.result.ok && ['ORBIT', true, 'gn']]);
+  callT -= dt; callEl.innerHTML = callT > 0 ? callTxt : '';
+  drawProfile(); drawOrbit();
+}
+
+// ---------- environment ----------
+const toEcef = new THREE.Matrix3(), _c2e = V3(), _sl = new THREE.Color();
+let envBand = -1;
+function updateEnv() {
+  eciToEcef(theta(), toEcef);
+  enuAt(S.r, _enu);
+  const mu = sunECI.dot(_enu.up), h = Math.max(0, S.alt);
+  sunTransmittance(h, mu, _sl); sun.color.copy(_sl); sun.intensity = 3.2 * Math.max(_sl.r, _sl.g, _sl.b) > 0 ? 3.2 : 0;
+  sun.position.copy(sunECI).multiplyScalar(300); sun.target.position.set(0, 0, 0);
+  const sky = Math.max(0, 1 - h / 45000) * THREE.MathUtils.smoothstep(mu, -0.15, 0.2);
+  hemi.color.setRGB(0.45 * sky + 0.01, 0.6 * sky + 0.01, 0.95 * sky + 0.02); hemi.groundColor.setRGB(0.18 * (0.3 + sky), 0.24 * (0.3 + sky), 0.32 * (0.3 + sky)); hemi.intensity = 0.4 + 0.5 * sky;
+  const band = h < 15e3 ? 0 : h < 45e3 ? 1 : 2;
+  if (band !== envBand) {
+    envBand = band; if (scene.environment) scene.environment.dispose();
+    const sunL = sunECI.clone();   // env map is in world (ECI) axes; good enough to use the local up as +Y
+    scene.environment = makeEnvironment(renderer, band === 0 ? { top: 0x4a78c0, horizon: 0xb8c8de, bottom: 0x4a5a48, sun: V3(0, 1, 0.3), sunPower: 30 } : band === 1 ? { top: 0x0a1630, horizon: 0x7aa0d8, bottom: 0x3a5a88, sun: V3(0, 1, 0.3), sunPower: 40 } : { top: 0x010205, horizon: 0x2a4a78, bottom: 0x3f6ea8, sun: V3(0, 1, 0.3), sunPower: 50 });
+  }
+  scene.environmentIntensity = 0.3 + 0.5 * THREE.MathUtils.smoothstep(mu, -0.2, 0.2);
+  const day = THREE.MathUtils.smoothstep(mu, -0.12, 0.15);
+  groundMat.uniforms.light.value.setRGB(0.04 + 0.9 * day * _sl.r, 0.05 + 0.9 * day * _sl.g, 0.07 + 0.9 * day * _sl.b);
+  smoke.material.uniforms.light.value.setRGB(0.1 + 0.85 * day, 0.1 + 0.83 * day, 0.11 + 0.8 * day);
+}
+
+// ---------- main loop ----------
+function resize() { renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); stars.material.uniforms.uDpr.value = renderer.getPixelRatio(); }
+addEventListener('resize', resize); resize();
+let last = performance.now(), hudT = 0, profT = 0;
+const _pq = new THREE.Quaternion(), _rel2 = V3(), _loc = new THREE.Vector2();
+function frame(now) {
+  const dtR = Math.min(0.1, (now - last) / 1000); last = now;
+  if (!S.paused) {
+    if (S.phase === 'count' || S.q > 8000 || (S.sesT && S.met > S.sesT - 2) || (S.sepT && S.met > S.sepT - 2) || S.result) S.warp = Math.min(S.warp, 1);
+    const simDt = dtR * S.warp, n = Math.max(1, Math.ceil(simDt / 0.02)), h = simDt / n;
+    for (let i = 0; i < n; i++) { step(h); stepBodies(h); if (S.result && !S.result.ok) break; }
+    updateSmoke(simDt);
+    profT += simDt; if (profT > 1 && S.phase === 'fly' && !S.result) { profT = 0; S.prof.push([S.dr / 1000, S.alt / 1000, 0]); if (S.prof.length > 900) S.prof.splice(0, 1); }
+  }
+  // vehicle pose (rocket at the world origin; everything else relative to it)
+  const dir = attDir();
+  bodyQuat(dir, vehicle.quaternion); vehicle.position.set(0, 0, 0);
+  plume1.visible = S.stage === 1 && S.engine && S.thr > 0.02; plume2.visible = S.stage === 2 && S.engine && S.thr > 0.02;
+  const p = atmosphere(Math.max(0, S.alt)).p, expn = 1 - Math.sqrt(Math.min(1, p / P0));
+  for (const pl of [plume1, plume2]) { const u = pl.material.uniforms; u.uExp.value = pl === plume2 ? Math.max(0.6, expn) : expn; u.uK.value = (pl === plume2 ? 0.8 : 1.4) * S.thr; u.uT.value = now / 1000; pl.scale.set(1, 1 + expn * 2.5, 1); }
+  engLight.intensity = S.engine ? 900 * S.thr * (1 - expn * 0.8) : 0;
+  R.mvac.material.emissive.setRGB(S.stage === 2 && S.engine ? 0.9 * S.thr : 0, S.stage === 2 && S.engine ? 0.28 * S.thr : 0, 0);
+  if (booster.on) { R.s1.position.copy(booster.r).sub(S.r); R.s1.quaternion.copy(booster.q); for (const f of R.s1.children) if (f.userData.fin) f.rotation.x = -1.2; }
+  fairings.forEach((f, i) => { if (f.on) { R.fair[i].position.copy(f.r).sub(S.r); R.fair[i].quaternion.copy(f.q); } else if (!S.fairing) R.fair[i].visible = false; });
+  // pad frame
+  const pE = padECEF(), e = enuAt(pE, {}), th = theta();
+  pad.position.copy(ecefToEci(th, pE)).sub(S.r);
+  const E = ecefToEci(th, e.east), U = ecefToEci(th, e.up), Sth = ecefToEci(th, e.north).negate();
+  pad.quaternion.setFromRotationMatrix(_m4.makeBasis(E, U, Sth));
+  pad.visible = pad.position.length() < 60000;
+  updateEnv();
+  updateCamera(dtR);
+  _rel2.copy(camera.position).sub(pad.position); _loc.set(_rel2.dot(E), -_rel2.dot(Sth));
+  earth.update(camera, _c2e.copy(S.r).negate().sub(camera.position), toEcef, sunECI, { east: _enu.east, north: _enu.north, localEN: _loc, time: S.t });
+  stars.position.copy(camera.position);
+  glare.position.copy(camera.position).addScaledVector(sunECI, 3e7);
+  hudT += dtR; if (hudT > 0.1) { updateHUD(hudT); hudT = 0; }
+  renderer.render(scene, camera);
+  adaptive.tick(dtR); fps.tick(dtR, renderer);
+  requestAnimationFrame(frame);
+}
+
+(async () => {
+  loadingStep('Loading NASA Blue Marble & Black Marble…', 0.15);
+  const [day, night] = await Promise.all([loadTexture('../shared/nasa/earth_day_4k.jpg'), loadTexture('../shared/nasa/earth_night_2k.jpg')]);
+  loadingStep('Baking clouds and atmosphere…', 0.5);
+  await new Promise(r => setTimeout(r, 20));
+  earth = new EarthView(renderer, { dayMap: day, nightMap: night, samples: preset().samples, detail: 1 });
+  onSettings(() => earth.setSamples(preset().samples));
+  scene.add(earth.mesh);
+  loadingStep('Rolling out the vehicle…', 0.8);
+  await mergeStatic(R.s2); await mergeStatic(pad, { keep: o => o === groundMesh });
+  loadScenario(0);
+  loadingStep('Ready', 1); loadingDone(); camHint();
+  requestAnimationFrame(t => { last = t; frame(t); });
+})();
+window.__launch = { S, loadScenario, setCam, elements, get renderer() { return renderer; }, step };
+</script>
+</body>
+</html>

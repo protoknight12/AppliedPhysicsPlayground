@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Atmospheric Entry · Physics Sandbox</title>
+<meta name="description" content="Fly a crew capsule from entry interface to splashdown: lift-vector bank steering, Sutton–Graves and Tauber–Sutton heating, heat-shield budget, plasma blackout, skip entry, parachutes.">
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/hud.css">
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script src="../shared/site.js" defer></script>
+<style>
+:root{--accent:#ff6b5a}
+#events{list-style:none;margin:4px 0 0;padding:0;max-height:130px;overflow:auto;font:11.5px/1.6 var(--mono)}
+#events li{display:flex;gap:8px;color:var(--mute)}#events li b{color:var(--ink);font-weight:500;min-width:44px}
+#events li.ok b{color:var(--ok)}#events li.warn b{color:var(--warn)}#events li.bad b{color:var(--bad)}
+.inst{max-width:232px}
+#bank{position:absolute;left:50%;bottom:64px;transform:translateX(-50%);width:200px;height:110px;pointer-events:none}
+</style>
+</head>
+<body>
+<canvas id="gl" tabindex="-1" aria-label="3D view: capsule entering the atmosphere"></canvas>
+<div id="loading"><div class="lbox"><div class="ln">Atmospheric Entry</div><div class="lb"><i></i></div><div class="lt">Loading NASA imagery…</div></div></div>
+<div class="hud">
+  <div class="top">
+    <a class="back" href="../">← Sandbox</a><span data-sitenav></span>
+    <h1>Atmospheric Entry</h1>
+    <select id="scn" aria-label="Scenario"></select>
+    <button id="restart">Restart</button>
+    <button id="camBtn" title="Cycle cameras (C)">Camera: Chase</button>
+    <button id="chuteBtn" title="Deploy next parachute (J)">Chute <span class="k">J</span></button>
+    <span class="sp"></span>
+    <button id="helpBtn" title="Help (H)">Help</button>
+    <button id="setBtn" class="icon" title="Settings" aria-label="Settings"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/></svg></button>
+  </div>
+  <div class="big"><div>ALTITUDE<b id="bAlt">—</b></div><div>VELOCITY<b id="bV">—</b></div><div>G-LOAD<b id="bG">—</b></div></div>
+  <div class="call" id="call"></div>
+  <div class="panel left" id="tele"><div class="ph"><div class="sec">Entry</div><button class="col" aria-label="Collapse panel">–</button></div><div class="pb" id="teleB"></div></div>
+  <div class="panel right" id="right"><div class="ph"><div class="sec">Altitude · velocity</div><button class="col" aria-label="Collapse panel">–</button></div>
+    <div class="pb"><canvas class="inst" id="hv" width="464" height="300" style="aspect-ratio:464/300"></canvas><div class="sec">Landing footprint</div><canvas class="inst" id="map" width="464" height="380" style="aspect-ratio:464/380"></canvas><div class="sec">Events</div><ul id="events"></ul></div></div>
+  <canvas id="bank" width="400" height="220" aria-hidden="true"></canvas>
+  <div class="bottom">
+    <div class="chips" id="chips"></div>
+    <div class="keys"><kbd>A</kbd><kbd>D</kbd> roll lift vector · <kbd>W</kbd> lift up · <kbd>S</kbd> lift down · <kbd>G</kbd> guidance · <kbd>J</kbd> parachute · <kbd>P</kbd> predictor<br><kbd>C</kbd> camera · <kbd>[</kbd><kbd>]</kbd> warp · <kbd>Space</kbd> pause · drag to look</div>
+  </div>
+  <div id="msg" class="modal" role="dialog" aria-live="polite"></div>
+  <div id="help" class="modal" role="dialog" aria-label="Help">
+    <h2>Flying an entry</h2>
+    <p>A blunt capsule flies at a trimmed angle of attack, so it has a little lift (L/D ≈ 0.28). You can't pitch it — you <b>roll the lift vector</b>. Lift up stretches the trajectory (and can skip you back out); lift down shortens it and steepens the dive (more g, more heat). Rolling also turns you left or right, so real guidance flies a bank angle and reverses it to stay on line.</p>
+    <div class="cols">
+      <div><h3>Controls</h3><table>
+        <tr><td>A / D</td><td>Roll the lift vector left / right (20°/s)</td></tr>
+        <tr><td>W · S</td><td>Roll to full lift-up · full lift-down</td></tr>
+        <tr><td>G</td><td>Predictor-corrector guidance to the target</td></tr>
+        <tr><td>J</td><td>Deploy drogues, then mains (auto when armed)</td></tr>
+        <tr><td>P</td><td>Show the predicted splash point and reachable footprint</td></tr>
+        <tr><td>C · drag</td><td>Cameras: chase, window, recovery ship, free</td></tr></table></div>
+      <div><h3>Limits</h3><table>
+        <tr><td>Crew</td><td>≤ 8 g comfortable, &gt; 12 g sustained is fatal</td></tr>
+        <tr><td>Heat shield</td><td>peak flux 6 MW/m², integrated load as listed</td></tr>
+        <tr><td>Drogues</td><td>below Mach 1.4 and 12 kPa</td></tr>
+        <tr><td>Mains</td><td>below ~120 m/s</td></tr>
+        <tr><td>Splashdown</td><td>≤ 12 m/s</td></tr></table></div>
+    </div>
+    <p><b>Physics:</b> 3-DOF point mass over a rotating Earth, US Standard Atmosphere 1976, convective heating by Sutton–Graves (k = 1.74×10⁻⁴, nose radius 6 m) and radiative heating by Tauber–Sutton above ~9 km/s, plasma blackout while the shock layer is ionised. The guidance is a numerical predictor-corrector: it integrates the rest of the flight several times a second to find the bank angle that lands on the target, with bank reversals for crossrange.</p>
+    <div class="btns"><button id="helpClose" class="primary">Close</button></div>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { createRenderer, AdaptiveResolution, makeEnvironment, makeStars, makeSunGlare, mountSettings, FpsMeter, loadingStep, loadingDone, loadTexture, preset, onSettings, Readout, chips as setChips, camHint, modal, mergeStatic } from '../shared/three/kit.js';
+import { CamRig } from '../shared/three/camrig.js';
+import { EarthView, eciToEcef, sunTransmittance, atmosphere, R_EARTH, OMEGA_EARTH, MU_EARTH } from '../shared/three/earth.js';
+import { installTouch } from '../shared/touch.js';
+import { buildCapsule, buildPlasma, buildChute, buildShip } from './capsule.js';
+
+const MU = MU_EARTH, RE = R_EARTH, OM = OMEGA_EARTH, G0 = 9.80665;
+const D2R = Math.PI / 180, R2D = 180 / Math.PI;
+const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
+const CAP = { m: 9300, A: Math.PI * 2.5 * 2.5, LD: 0.28, Rn: 6.0 };
+const DROGUE_CDA = 52, MAIN_CDA = 2150;
+const cdAt = M => M > 3 ? 1.25 : M > 1.2 ? 1.05 + 0.2 * (M - 1.2) / 1.8 : 1.05;
+const TS = [[9000, 1.5], [9500, 4.3], [10000, 9.7], [10500, 19.5], [11000, 35], [11500, 55], [12000, 81], [12500, 115], [13000, 151]];
+function heatFlux(rho, v) {
+  const qc = 1.7415e-4 * Math.sqrt(rho / CAP.Rn) * v * v * v;                      // Sutton–Graves, W/m²
+  let qr = 0;
+  if (v > 9000 && rho > 0) {                                                       // Tauber–Sutton radiative
+    let f = TS[TS.length - 1][1]; for (let i = 1; i < TS.length; i++) if (v < TS[i][0]) { const [a, fa] = TS[i - 1], [b, fb] = TS[i]; f = fa + (fb - fa) * (v - a) / (b - a); break; }
+    const a = Math.min(1, 1.072e6 * Math.pow(v, -1.88) * Math.pow(rho, -0.325));
+    qr = 4.736e4 * Math.pow(CAP.Rn, a) * Math.pow(rho, 1.22) * f * 1e4;
+  }
+  return [qc, qr];
+}
+
+// ---------- scenarios ----------
+const SCN = [
+  { name: 'LEO return · 7.8 km/s, γ −1.4°', V: 7800, gam: -1.4, range: 3100, az: 62, target: [31.2, -118.9], Qmax: 260e6, lift: true, hour: 9.5 },
+  { name: 'Lunar return · 11.0 km/s, γ −6.0° (direct)', V: 11000, gam: -6.0, range: 2600, az: 55, target: [30.5, -117.6], Qmax: 650e6, lift: true, hour: 13 },
+  { name: 'Lofted long-range entry · 11.0 km/s, 3,500 km', V: 11000, gam: -5.6, range: 3500, az: 58, target: [29.8, -117.4], Qmax: 650e6, lift: true, hour: 15.5 },
+  { name: 'Ballistic fallback · no lift control (spinning)', V: 7650, gam: -1.6, range: 2120, az: 60, target: [31.0, -118.0], Qmax: 260e6, lift: false, hour: 11 },
+  { name: 'Steep corridor · 11.0 km/s, γ −6.9°', V: 11000, gam: -6.9, range: 3600, az: 50, target: [30.2, -118.3], Qmax: 650e6, lift: true, hour: 17.8 },
+];
+const sel = document.getElementById('scn'); SCN.forEach((s, i) => sel.add(new Option(s.name, i)));
+
+// ---------- renderer / scene ----------
+const canvas = document.getElementById('gl');
+const renderer = createRenderer(canvas, { shadows: true, exposure: 0.95 });
+const adaptive = new AdaptiveResolution(renderer, () => resize());
+const fps = new FpsMeter();
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, 1, 0.3, 6e7);
+const rig = new CamRig(canvas, camera, { maxZoom: 60, minZoom: 0.15 });
+const sun = new THREE.DirectionalLight(0xffffff, 3.2); sun.castShadow = true;
+Object.assign(sun.shadow.camera, { left: -40, right: 40, top: 40, bottom: -40, near: 1, far: 400 }); sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.04;
+scene.add(sun, sun.target);
+const hemi = new THREE.HemisphereLight(0x87a8d8, 0x3a4a5a, 0.5); scene.add(hemi);
+const applyShadow = () => { const p = preset(); sun.shadow.mapSize.set(p.shadowMap, p.shadowMap); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } };
+applyShadow(); onSettings(applyShadow);
+const stars = makeStars({ count: 7000, radius: 3e7 }); scene.add(stars);
+const glare = makeSunGlare(0.5); scene.add(glare);
+const plasmaLight = new THREE.PointLight(0xff8a5a, 0, 80, 1.5); scene.add(plasmaLight);
+let earth = null;
+
+const cap = buildCapsule(); scene.add(cap.g);
+const plasma = buildPlasma(); cap.g.add(plasma.sheath); scene.add(plasma.wake);
+const drogues = [0, 1].map(i => { const c = buildChute(3.4, 12, 14); c.visible = false; scene.add(c); return c; });
+const mains = [0, 1, 2].map(i => { const c = buildChute(16, 20, 32); c.visible = false; scene.add(c); return c; });
+const ship = buildShip(); scene.add(ship);
+// ablation sparks
+const SPK = 600, spPos = new Float32Array(SPK * 3), spVel = new Float32Array(SPK * 3), spAge = new Float32Array(SPK).fill(9);
+const spGeo = new THREE.BufferGeometry(); spGeo.setAttribute('position', new THREE.BufferAttribute(spPos, 3));
+const sparks = new THREE.Points(spGeo, new THREE.PointsMaterial({ color: 0xffb070, size: 0.25, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }));
+sparks.frustumCulled = false; scene.add(sparks); let spHead = 0;
+// splash foam
+const FOAM = 500, fmPos = new Float32Array(FOAM * 3), fmVel = new Float32Array(FOAM * 3);
+const fmGeo = new THREE.BufferGeometry(); fmGeo.setAttribute('position', new THREE.BufferAttribute(fmPos, 3));
+const foam = new THREE.Points(fmGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.6, transparent: true, opacity: 0.85, depthWrite: false }));
+foam.frustumCulled = false; foam.visible = false; scene.add(foam);
+
+// ---------- geography ----------
+const toUnit = (lat, lon, out = V3()) => out.set(Math.cos(lat * D2R) * Math.cos(lon * D2R), Math.cos(lat * D2R) * Math.sin(lon * D2R), Math.sin(lat * D2R));
+function destination(lat, lon, brg, dist) {                      // great-circle destination (deg, deg, deg, m)
+  const d = dist / RE, la = lat * D2R, lo = lon * D2R, b = brg * D2R;
+  const la2 = Math.asin(Math.sin(la) * Math.cos(d) + Math.cos(la) * Math.sin(d) * Math.cos(b));
+  const lo2 = lo + Math.atan2(Math.sin(b) * Math.sin(d) * Math.cos(la), Math.cos(d) - Math.sin(la) * Math.sin(la2));
+  return [la2 * R2D, lo2 * R2D];
+}
+function bearing(a, b) { const [la1, lo1] = a.map(x => x * D2R), [la2, lo2] = b.map(x => x * D2R); return Math.atan2(Math.sin(lo2 - lo1) * Math.cos(la2), Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(lo2 - lo1)) * R2D; }
+const gcDist = (u1, u2) => Math.acos(Math.max(-1, Math.min(1, u1.dot(u2)))) * RE;
+const ecefToEci = (th, p, out = V3()) => out.set(Math.cos(th) * p.x - Math.sin(th) * p.y, Math.sin(th) * p.x + Math.cos(th) * p.y, p.z);
+const eciToEcefV = (th, p, out = V3()) => out.set(Math.cos(th) * p.x + Math.sin(th) * p.y, -Math.sin(th) * p.x + Math.cos(th) * p.y, p.z);
+const latlon = u => [Math.asin(u.z) * R2D, Math.atan2(u.y, u.x) * R2D];
+
+// ---------- state ----------
+const S = { r: V3(), v: V3(), t: 0, theta0: 0.6, bank: 0, bankCmd: 0, guid: true, pred: true, mode: 'entry', Q: 0, qdot: 0, qc: 0, qr: 0, g: 0, maxG: 0, maxQdot: 0, mach: 0, q: 0, alt: 0, warp: 1, paused: false, cam: 0, result: null, chuteArm: true, blackout: false, trail: [], hv: [], tgtU: V3(), predP: null, foot: null, predPath: [], spin: 0, events: new Set() };
+const theta = () => S.theta0 + OM * S.t;
+let sunECI = V3(1, 0, 0);
+function loadScenario(i) {
+  const s = SCN[i]; S.scn = s;
+  S.t = 0; S.mode = 'entry'; S.Q = 0; S.maxG = 0; S.maxQdot = 0; S.result = null; S.warp = 1; S.chuteArm = true; S.blackout = false; S.trail = []; S.hv = []; S.events = new Set(); S.predP = null; S.foot = null; S.predPath = [];
+  S.guid = s.lift; S.bank = S.bankCmd = s.lift ? 0 : 0; S.spin = 0;
+  toUnit(...s.target, S.tgtU);
+  // entry interface: back along the great circle from the target
+  const back = (s.az + 180) % 360, [la, lo] = destination(s.target[0], s.target[1], back, s.range * 1000), brg = bearing([la, lo], s.target);
+  const uE = toUnit(la, lo), up = uE.clone(), east = V3(-up.y, up.x, 0).normalize(), north = up.clone().cross(east);
+  const rE = up.clone().multiplyScalar(RE + 122e3), dirE = north.clone().multiplyScalar(Math.cos(brg * D2R)).addScaledVector(east, Math.sin(brg * D2R));
+  const vE = dirE.multiplyScalar(s.V * Math.cos(s.gam * D2R)).addScaledVector(up, s.V * Math.sin(s.gam * D2R));
+  ecefToEci(S.theta0, rE, S.r); ecefToEci(S.theta0, vE, S.v);            // inertial velocity (EI speed is inertial)
+  const lst = S.theta0 + s.target[1] * D2R, H = (s.hour - 12) * 15 * D2R, al = lst - H;
+  sunECI.set(Math.cos(al), Math.sin(al), 0.2).normalize();
+  [...drogues, ...mains].forEach(c => c.visible = false); foam.visible = false; spAge.fill(9);
+  document.getElementById('events').innerHTML = '';
+  modal(document.getElementById('msg'), false);
+  event('Entry interface · 122 km', '');
+  setCam(S.cam, true);
+  guidanceT = 0; predT = 0; footT = 0;
+}
+function event(text, cls = '') {
+  const li = document.createElement('li'); li.className = cls; li.innerHTML = `<b>${fmtT(S.t)}</b><span>${text}</span>`;
+  document.getElementById('events').prepend(li);
+}
+const once = (id, text, cls = '', callTxt = null, callCls = 'warn') => { if (S.events.has(id)) return; S.events.add(id); event(text, cls); if (callTxt) call(callTxt, callCls); };
+const fmtT = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+
+// ---------- input ----------
+const keys = new Set();
+const WARPS = [1, 2, 5, 10, 20];
+let callTxt = '', callT = 0;
+function call(txt, cls = 'warn', t = 3) { callTxt = `<span class="${cls}">${txt}</span>`; callT = t; }
+function manual() { if (S.guid && S.scn.lift) { S.guid = false; call('GUIDANCE OFF · manual bank', 'warn'); event('Guidance disengaged', 'warn'); } }
+addEventListener('keydown', e => {
+  if (e.target.tagName === 'SELECT' || e.ctrlKey || e.metaKey || e.altKey) return;
+  keys.add(e.code);
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
+  if (['KeyA', 'KeyD'].includes(e.code)) manual();
+  if (e.repeat) return;
+  switch (e.code) {
+    case 'KeyW': manual(); S.bankCmd = 0; break;
+    case 'KeyS': manual(); S.bankCmd = S.bankCmd >= 0 ? 180 : -180; break;
+    case 'KeyG': if (S.scn.lift) { S.guid = !S.guid; call(S.guid ? 'GUIDANCE ON' : 'GUIDANCE OFF', S.guid ? 'ok' : 'warn'); } break;
+    case 'KeyJ': deployNext(true); break;
+    case 'KeyP': S.pred = !S.pred; break;
+    case 'Space': S.paused = !S.paused; break;
+    case 'KeyC': setCam((S.cam + 1) % 4); break;
+    case 'KeyH': toggleHelp(); break;
+    case 'Escape': if (help.classList.contains('show')) toggleHelp(); break;
+    case 'BracketRight': S.warp = WARPS[Math.min(WARPS.length - 1, WARPS.indexOf(S.warp) + 1)]; break;
+    case 'BracketLeft': S.warp = WARPS[Math.max(0, WARPS.indexOf(S.warp) - 1)]; break;
+    case 'Enter': if (S.result) loadScenario(+sel.value); break;
+  }
+});
+addEventListener('keyup', e => keys.delete(e.code));
+addEventListener('blur', () => keys.clear());
+const CAMS = ['Chase', 'Window', 'Recovery ship', 'Free'];
+function setCam(i, keep = false) {
+  S.cam = i; document.getElementById('camBtn').textContent = 'Camera: ' + CAMS[i];
+  camera.fov = i === 1 ? 72 : i === 2 ? 30 : 50; camera.zoom = 1; camera.updateProjectionMatrix();
+  rig.setMode(i === 1 || i === 2 ? 'look' : 'orbit', { pitchMin: -1.45, pitchMax: 1.45 });
+  if (!keep) camHint();
+}
+document.getElementById('camBtn').onclick = () => setCam((S.cam + 1) % 4);
+document.getElementById('restart').onclick = () => loadScenario(+sel.value);
+document.getElementById('chuteBtn').onclick = () => deployNext(true);
+sel.onchange = () => { loadScenario(+sel.value); sel.blur(); };
+const help = document.getElementById('help');
+function toggleHelp() { modal(help, !help.classList.contains('show')); }
+document.getElementById('helpBtn').onclick = toggleHelp; document.getElementById('helpClose').onclick = toggleHelp;
+mountSettings(document.getElementById('setBtn'));
+document.querySelectorAll('.panel .col').forEach(b => b.onclick = () => { const p = b.closest('.panel'); p.classList.toggle('min'); b.textContent = p.classList.contains('min') ? '+' : '–'; });
+installTouch({
+  sticks: [{ side: 'l', label: 'ROLL LIFT VECTOR', x: ['KeyA', 'KeyD'] }],
+  buttons: [{ label: 'LIFT UP', code: 'KeyW' }, { label: 'LIFT DOWN', code: 'KeyS' }, { label: 'GUIDANCE', code: 'KeyG' }, { label: 'CHUTE', code: 'KeyJ' }, { label: 'CAM', code: 'KeyC', side: 'l' }],
+});
+
+// ---------- dynamics ----------
+const _w = V3(), _rel = V3(), _l0 = V3(), _sd = V3(), _ld = V3(), _a = V3(), _up = V3();
+// acceleration for a state; bank in degrees (positive = lift to the right); cda override for parachutes
+function accel(r, v, bank, out, info = null, cdaOverride = 0, lift = true) {
+  const rm = r.length(), alt = rm - RE, atm = atmosphere(alt);
+  _rel.copy(v).sub(_w.set(-OM * r.y, OM * r.x, 0));
+  const vr = _rel.length(), q = 0.5 * atm.rho * vr * vr, M = vr / atm.a;
+  out.copy(r).multiplyScalar(-MU / (rm * rm * rm));
+  if (vr > 1e-3 && atm.rho > 1e-12) {
+    const cda = cdaOverride || cdAt(M) * CAP.A, D = q * cda / CAP.m;
+    _rel.divideScalar(vr);
+    out.addScaledVector(_rel, -D);
+    if (lift && !cdaOverride) {
+      _up.copy(r).divideScalar(rm); _l0.copy(_up).addScaledVector(_rel, -_up.dot(_rel)).normalize(); _sd.copy(_rel).cross(_l0);
+      _ld.copy(_l0).multiplyScalar(Math.cos(bank * D2R)).addScaledVector(_sd, Math.sin(bank * D2R));
+      out.addScaledVector(_ld, D * CAP.LD * (M > 1.5 ? 1 : M / 1.5));
+    }
+    if (info) { info.q = q; info.M = M; info.rho = atm.rho; info.vr = vr; info.D = D; }
+  } else if (info) { info.q = 0; info.M = 0; info.rho = 0; info.vr = vr; info.D = 0; }
+  return out;
+}
+const INFO = {}, _ag = V3();
+function step(dt) {
+  S.t += dt;
+  const s = S.scn;
+  // bank dynamics: 20°/s roll rate; ballistic capsule spins 15°/s (lift averages out)
+  if (!s.lift) { S.spin += 15 * dt; S.bank = ((S.spin + 180) % 360) - 180; }
+  else {
+    if (!S.guid) S.bankCmd += ((keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0)) * 20 * dt;
+    S.bankCmd = ((S.bankCmd + 540) % 360) - 180;
+    let d = ((S.bankCmd - S.bank + 540) % 360) - 180; S.bank += THREE.MathUtils.clamp(d, -20 * dt, 20 * dt); S.bank = ((S.bank + 540) % 360) - 180;
+  }
+  const cda = S.mode === 'drogue' ? DROGUE_CDA : S.mode === 'main' ? MAIN_CDA * Math.min(1, (S.t - S.mainT) / 6) + DROGUE_CDA * 0 : 0;
+  if (S.mode === 'splash' || S.mode === 'done') return;
+  accel(S.r, S.v, S.bank, _ag, INFO, cda, s.lift || true);
+  const gx = _ag.clone().sub(S.r.clone().multiplyScalar(-MU / S.r.length() ** 3));
+  S.g = gx.length() / G0; S.q = INFO.q; S.mach = INFO.M;
+  S.v.addScaledVector(_ag, dt); S.r.addScaledVector(S.v, dt);
+  S.alt = S.r.length() - RE;
+  const [qc, qr] = heatFlux(INFO.rho, INFO.vr); S.qc = cda ? 0 : qc; S.qr = cda ? 0 : qr; S.qdot = S.qc + S.qr; S.Q += S.qdot * dt;
+  S.maxG = Math.max(S.maxG, S.g); S.maxQdot = Math.max(S.maxQdot, S.qdot);
+  S.blackout = INFO.vr > 6000 && S.alt > 40e3 && S.alt < 95e3 && S.mode === 'entry';
+  // events and limits
+  if (S.blackout) once('bo', 'Plasma blackout — loss of signal', 'warn', 'LOSS OF SIGNAL · PLASMA BLACKOUT');
+  if (S.events.has('bo') && !S.blackout && INFO.vr > 1000) once('aos', 'Acquisition of signal', 'ok', 'ACQUISITION OF SIGNAL', 'ok');
+  if (S.g > 4) once('g4', 'Deceleration > 4 g');
+  if (S.g < S.maxG * 0.97 && S.maxG > 3) once('pg', `Peak deceleration · ${S.maxG.toFixed(1)} g`, S.maxG > 8 ? 'warn' : '', `PEAK ${S.maxG.toFixed(1)} G`, S.maxG > 8 ? 'warn' : 'ok');
+  if (S.qdot < S.maxQdot * 0.95 && S.maxQdot > 3e5) once('pq', `Peak heating · ${(S.maxQdot / 1e6).toFixed(2)} MW/m²`, '');
+  if (S.events.has('bo') && S.alt > 100e3 && S.v.dot(S.r) > 0) once('skip', 'Skip — climbing back out of the atmosphere', 'warn', 'SKIP · EXITING THE ATMOSPHERE');
+  if (!S.result) {
+    if (S.g > 15 || (S.g > 12 && S.highG > 6)) return fail('Crew lost to deceleration', [`${S.g.toFixed(1)} g (peak ${S.maxG.toFixed(1)} g) — limit about 12 g sustained`]);
+    S.highG = S.g > 12 ? (S.highG || 0) + dt : 0;
+    if (S.qdot > 6e6) return fail('Heat-shield failure — peak heating', [`${(S.qdot / 1e6).toFixed(2)} MW/m² (shield rated 6 MW/m²)`]);
+    if (S.Q > s.Qmax) return fail('Heat-shield burn-through', [`integrated heat load ${(S.Q / 1e6).toFixed(0)} MJ/m² (capacity ${(s.Qmax / 1e6).toFixed(0)} MJ/m²) — too long in the hot part of the corridor`]);
+    if (S.alt > 140e3 && S.v.dot(S.r) > 0) { const el = elements(); if (el.ra > RE + 600e3 || el.e >= 1) return fail('Skipped out into space', [`apogee ${el.e >= 1 ? '∞' : ((el.ra - RE) / 1000).toFixed(0) + ' km'} — the next entry is hours away and the consumables are not`]); }
+    if (S.mode === 'drogue' && S.q > 15000 && S.t - S.drogueT < 2) return fail('Drogue parachutes shredded', [`deployed at ${(S.q / 1000).toFixed(1)} kPa / Mach ${S.mach.toFixed(2)} (limits 12 kPa, Mach 1.4)`]);
+    if (S.mode === 'main' && INFO.vr > 140 && S.t - S.mainT < 2) return fail('Main parachutes failed', [`opened at ${INFO.vr.toFixed(0)} m/s (limit ~120 m/s)`]);
+  }
+  // automatic parachute sequence
+  if (S.chuteArm && S.mode === 'entry' && S.alt < 7600 && S.mach < 0.9) deployNext(false);
+  if (S.chuteArm && S.mode === 'drogue' && S.alt < 3000) deployNext(false);
+  if (S.alt <= 0) splash(INFO.vr);
+}
+function deployNext(manualPress) {
+  if (S.result) return;
+  if (S.mode === 'entry') { if (manualPress && S.alt > 30e3) { call('TOO HIGH FOR PARACHUTES', 'bad'); return; } S.mode = 'drogue'; S.drogueT = S.t; drogues.forEach(c => c.visible = true); event(`Drogues · ${(S.alt / 1000).toFixed(1)} km, Mach ${S.mach.toFixed(2)}`, 'ok'); call('DROGUE DEPLOY', 'ok'); }
+  else if (S.mode === 'drogue') { S.mode = 'main'; S.mainT = S.t; drogues.forEach(c => c.visible = false); mains.forEach(c => c.visible = true); event(`Main parachutes · ${(S.alt / 1000).toFixed(1)} km`, 'ok'); call('MAINS DEPLOYED', 'ok'); }
+}
+function elements() {
+  const r = S.r, v = S.v, rm = r.length(), h = r.clone().cross(v), ev = v.clone().cross(h).divideScalar(MU).sub(r.clone().divideScalar(rm)), e = ev.length(), eps = v.lengthSq() / 2 - MU / rm, a = -MU / (2 * eps);
+  return { e, ra: a * (1 + e), rp: a * (1 - e) };
+}
+function groundU(r = S.r) { return eciToEcefV(theta(), r).normalize(); }
+function splash(vr) {
+  S.mode = 'splash';
+  const miss = gcDist(groundU(), S.tgtU) / 1000;
+  foam.visible = true; for (let i = 0; i < FOAM; i++) { const a = Math.random() * 6.283, s = 2 + Math.random() * 6; fmPos.set([Math.cos(a) * 2.4, 0, Math.sin(a) * 2.4], i * 3); fmVel.set([Math.cos(a) * s, 2 + Math.random() * 6, Math.sin(a) * s], i * 3); }
+  const vs = Math.abs(S.v.dot(S.r.clone().normalize()) - 0);
+  if (vr > 25) return fail('Hit the water at high speed', [`${vr.toFixed(0)} m/s — ${S.mode === 'entry' ? 'no parachutes' : 'parachutes not fully open'}`]);
+  S.result = { ok: true };
+  const s = S.scn;
+  let score = Math.round(1000 - miss * 15 - Math.max(0, S.maxG - 5) * 60 - (S.Q / s.Qmax) * 150 - Math.max(0, vr - 8) * 30 + (S.guid ? -120 : 0));
+  score = Math.max(80, score);
+  const grade = vr > 12 ? 'Hard splash' : miss < 5 ? 'On the ship' : miss < 25 ? 'In the recovery zone' : miss < 150 ? 'Wide of the zone' : 'Far off target';
+  event(`Splashdown · ${miss.toFixed(1)} km from the ship`, 'ok');
+  const m = document.getElementById('msg');
+  m.innerHTML = `<h2 class="${vr > 12 ? 'warn' : 'ok'}">Splashdown</h2><div class="score"><b>${score}</b><span class="grade ${miss < 25 ? 'ok' : 'warn'}">${grade}</span></div>
+    ${S.guid ? '<p>Guidance flew the bank angle (−120). Turn it off with <b>G</b> and fly the lift vector yourself.</p>' : ''}
+    <div class="row"><span>Miss distance</span><b>${miss.toFixed(1)} km</b></div>
+    <div class="row"><span>Splashdown speed</span><b>${vr.toFixed(1)} m/s</b></div>
+    <div class="row"><span>Peak deceleration</span><b>${S.maxG.toFixed(2)} g</b></div>
+    <div class="row"><span>Peak heat flux</span><b>${(S.maxQdot / 1e6).toFixed(2)} MW/m²</b></div>
+    <div class="row"><span>Heat load · shield used</span><b>${(S.Q / 1e6).toFixed(0)} MJ/m² · ${(S.Q / s.Qmax * 100).toFixed(0)} %</b></div>
+    <div class="row"><span>Entry to splashdown</span><b>${fmtT(S.t)}</b></div>
+    <div class="btns"><button id="again" class="primary">Fly again (Enter)</button><button id="nextS">Next scenario</button></div>`;
+  modal(m, true);
+  document.getElementById('again').onclick = () => loadScenario(+sel.value);
+  document.getElementById('nextS').onclick = () => { sel.value = (+sel.value + 1) % SCN.length; loadScenario(+sel.value); };
+}
+function fail(title, why) {
+  if (S.result) return;
+  S.result = { ok: false }; if (S.mode !== 'splash') S.mode = 'done';
+  event(title, 'bad');
+  const m = document.getElementById('msg');
+  m.innerHTML = `<h2 class="bad">${title}</h2><p>${why.map(w => '• ' + w).join('<br>')}</p>
+    <div class="row"><span>Altitude · velocity</span><b>${(S.alt / 1000).toFixed(1)} km · ${(S.v.length() / 1000).toFixed(2)} km/s</b></div>
+    <div class="row"><span>Peak g · peak heating</span><b>${S.maxG.toFixed(1)} g · ${(S.maxQdot / 1e6).toFixed(2)} MW/m²</b></div>
+    <div class="btns"><button id="again" class="primary">Retry (Enter)</button></div>`;
+  modal(m, true); document.getElementById('again').onclick = () => loadScenario(+sel.value);
+}
+
+// ---------- predictor-corrector guidance ----------
+// Integrates the rest of the entry (to 10 km) with a constant bank magnitude and returns the splash point and peak g.
+const _pr = V3(), _pv = V3(), _pa = V3();
+function predict(bankDeg, dt = 2, path = null) {
+  _pr.copy(S.r); _pv.copy(S.v); let t = 0, maxG = 0;
+  const lift = S.scn.lift;
+  for (let n = 0; n < 4000 && t < 5000; n++) {
+    const alt0 = _pr.length() - RE, h = alt0 > 125e3 ? 10 : dt;           // big steps while coasting above the atmosphere (skips)
+    accel(_pr, _pv, lift ? bankDeg : 0, _pa, INFO, 0, lift);
+    if (INFO.D) maxG = Math.max(maxG, INFO.D * Math.hypot(1, lift ? CAP.LD : 0) / G0);
+    _pv.addScaledVector(_pa, h); _pr.addScaledVector(_pv, h); t += h;
+    const alt = _pr.length() - RE;
+    if (path && n % 3 === 0) path.push([INFO.vr, alt]);
+    if (alt < 10e3) break;
+    if (alt > 220e3) return { u: null, maxG, skip: true, t };        // treat a high skip as 'too long': guidance keeps out of it
+  }
+  const th = theta() + OM * t;
+  return { u: eciToEcefV(th, _pr).normalize(), maxG, skip: false, t };
+}
+let guidanceT = 0, predT = 0, footT = 0;
+function guidance() {
+  if (!S.guid || !S.scn.lift || S.mode !== 'entry') return;
+  const vr = INFO.vr || S.v.length();
+  if (vr < 500) { S.bankCmd = 0; return; }
+  const here = groundU(), dTgt = gcDist(here, S.tgtU);
+  const rangeErr = b => { const p = predict(b, 1); if (!p.u) return { e: 1e7, g: p.maxG }; const d = gcDist(here, p.u), side = Math.sign(p.u.clone().sub(here).dot(S.tgtU.clone().sub(here))) || 1; return { e: d * side - dTgt, g: p.maxG }; };
+  let lo = 0, hi = 180, eLo = rangeErr(lo), eHi = rangeErr(hi), b = 0;
+  if (eLo.e < 0) b = 0; else if (eHi.e > 0) b = 180;
+  else { for (let i = 0; i < 7; i++) { const m = (lo + hi) / 2, em = rangeErr(m); if (em.e > 0) lo = m; else hi = m; } b = (lo + hi) / 2; }
+  // g-limiter: if the chosen bank would pull more than 7.5 g, give up range for lift
+  for (let k = 0; k < 4 && b > 10; k++) { const r = rangeErr(b); if (r.g < 7.5) break; b -= 20; }
+  b = Math.max(0, b);
+  // skip guard: while climbing out, don't let the Keplerian apogee exceed ~150 km (keeps the skip short and controllable)
+  const vsU = S.v.dot(S.r) / S.r.length();
+  if (vsU > 0 && S.alt < 115e3) { const el = elements(); if (el.e < 1 && el.ra - RE > 150e3) b = Math.max(b, Math.min(180, 90 + (el.ra - RE - 150e3) / 1000)); }
+  // lateral: bank reversal when the heading error exceeds a deadband that shrinks with range
+  const gv = eciToEcefV(theta(), S.v.clone().sub(V3(-OM * S.r.y, OM * S.r.x, 0)));
+  const up = here, east = V3(-up.y, up.x, 0).normalize(), north = up.clone().cross(east);
+  const azV = Math.atan2(gv.dot(east), gv.dot(north)) * R2D, azT = bearing(latlon(here), latlon(S.tgtU));
+  const err = ((azT - azV + 540) % 360) - 180, db = THREE.MathUtils.clamp(dTgt / 1e6 * 3, 0.6, 6);
+  let sign = Math.sign(S.bankCmd) || Math.sign(err) || 1;
+  if (Math.abs(err) > db && Math.sign(err) !== sign) { sign = -sign; if (b > 15) once('rev' + Math.round(S.t / 20), 'Bank reversal', ''); }
+  S.bankCmd = sign * b;
+}
+
+// ---------- camera ----------
+const _bq = new THREE.Quaternion(), _m4 = new THREE.Matrix4(), _x = V3(), _y = V3(), _z = V3(), _eye = V3(), _enuU = V3();
+const CHASE = V3(16, 4, 10), FREE = V3(30, 12, 40), WIN = V3(1.35, 1.25, 0);
+function updateCamera(dt) {
+  const up = _enuU.copy(S.r).normalize();
+  if (S.cam === 0) {
+    // frame: z = backward along the flow, y = lift-up direction
+    const rel = S.v.clone().sub(V3(-OM * S.r.y, OM * S.r.x, 0)).normalize();
+    _z.copy(rel).negate(); _y.copy(up).addScaledVector(rel, -up.dot(rel)).normalize(); _x.copy(_y).cross(_z);
+    _bq.setFromRotationMatrix(_m4.makeBasis(_x, _y, _z));
+    rig.orbit(V3(0, 0, 0), _bq, S.mode === 'main' ? V3(30, 10, 25) : CHASE, dt, { up });
+  } else if (S.cam === 1) {
+    _bq.copy(cap.g.quaternion).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0.1, -Math.PI / 2, 0)));
+    rig.look(_eye.copy(WIN).applyQuaternion(cap.g.quaternion), _bq, dt);
+  } else if (S.cam === 2) {
+    const shipP = shipPos(); rig.track(shipP.clone().addScaledVector(up, 25), V3(0, 0, 0), up, dt);
+    const dist = shipP.length(); camera.zoom = THREE.MathUtils.clamp(dist / 900, 1, 120) / rig.cz; camera.updateProjectionMatrix();
+  } else {
+    const east = V3(-up.y, up.x, 0).normalize(), north = up.clone().cross(east);
+    _bq.setFromRotationMatrix(_m4.makeBasis(east, up, north.negate())); rig.orbit(V3(0, 0, 0), _bq, FREE, dt, { up });
+  }
+}
+function shipPos() { return ecefToEci(theta(), S.tgtU.clone().multiplyScalar(RE)).sub(S.r); }
+
+// ---------- instruments ----------
+const hc = document.getElementById('hv').getContext('2d'), mc = document.getElementById('map').getContext('2d'), bc = document.getElementById('bank').getContext('2d');
+function drawHV() {
+  const c = hc, W = 232, H = 150; c.setTransform(2, 0, 0, 2, 0, 0); c.clearRect(0, 0, W, H);
+  const vmax = S.scn.V > 9000 ? 11.5 : 8, X = v => 24 + v / 1000 / vmax * (W - 30), Y = h => H - 14 - h / 125e3 * (H - 22);
+  c.strokeStyle = 'rgba(255,255,255,.1)'; c.beginPath(); c.moveTo(24, 6); c.lineTo(24, H - 14); c.lineTo(W - 4, H - 14); c.stroke();
+  // blackout band
+  c.fillStyle = 'rgba(255,107,90,.07)'; c.fillRect(X(6000), Y(95e3), X(vmax * 1000) - X(6000), Y(40e3) - Y(95e3));
+  if (S.pred && S.predPath.length) { c.strokeStyle = 'rgba(255,200,87,.6)'; c.setLineDash([3, 3]); c.beginPath(); S.predPath.forEach((p, i) => i ? c.lineTo(X(p[0]), Y(p[1])) : c.moveTo(X(p[0]), Y(p[1]))); c.stroke(); c.setLineDash([]); }
+  c.strokeStyle = '#ff6b5a'; c.lineWidth = 2; c.beginPath(); S.hv.forEach((p, i) => i ? c.lineTo(X(p[0]), Y(p[1])) : c.moveTo(X(p[0]), Y(p[1]))); c.stroke(); c.lineWidth = 1;
+  c.fillStyle = '#5d6873'; c.font = '9px JetBrains Mono'; c.fillText('125 km', 2, 12); c.fillText(`${vmax} km/s`, W - 42, H - 3); c.fillText('blackout', X(6000) + 3, Y(92e3));
+}
+function drawMap() {
+  const c = mc, W = 232, H = 190; c.setTransform(2, 0, 0, 2, 0, 0); c.clearRect(0, 0, W, H);
+  const T = S.tgtU, up = T, east = V3(-up.y, up.x, 0).normalize(), north = up.clone().cross(east);
+  const here = groundU(), dist = gcDist(here, T);
+  const range = THREE.MathUtils.clamp(dist * 1.25, 30e3, 6e6), sc = (Math.min(W, H) / 2 - 12) / range;
+  const toM = u => { const d = gcDist(T, u), b = Math.atan2(u.dot(east), u.dot(north)); return [W / 2 + Math.sin(b) * d * sc, H / 2 - Math.cos(b) * d * sc]; };
+  c.strokeStyle = 'rgba(255,255,255,.1)'; c.beginPath(); c.arc(W / 2, H / 2, 25e3 * sc, 0, 7); c.stroke();
+  c.strokeStyle = 'rgba(255,107,90,.8)'; c.lineWidth = 1.5; c.beginPath(); S.trail.forEach((u, i) => { const [x, y] = toM(u); i ? c.lineTo(x, y) : c.moveTo(x, y); }); c.stroke(); c.lineWidth = 1;
+  if (S.pred && S.foot) { const a = S.foot[0] && toM(S.foot[0]), b = S.foot[1] && toM(S.foot[1]); if (a && b) { c.strokeStyle = 'rgba(124,200,255,.5)'; c.lineWidth = 6; c.lineCap = 'round'; c.beginPath(); c.moveTo(...a); c.lineTo(...b); c.stroke(); c.lineWidth = 1; } }
+  if (S.pred && S.predP) { const [x, y] = toM(S.predP); c.strokeStyle = '#ffc857'; c.beginPath(); c.moveTo(x - 5, y - 5); c.lineTo(x + 5, y + 5); c.moveTo(x + 5, y - 5); c.lineTo(x - 5, y + 5); c.stroke(); }
+  c.fillStyle = '#5be39a'; c.beginPath(); c.arc(W / 2, H / 2, 3.5, 0, 7); c.fill();
+  const [hx, hy] = toM(here); c.fillStyle = '#ff6b5a'; c.beginPath(); c.arc(hx, hy, 3.5, 0, 7); c.fill();
+  c.fillStyle = '#5d6873'; c.font = '9px JetBrains Mono'; c.fillText(`${(range / 1000).toFixed(0)} km`, 4, 12); c.fillText('● ship  ✕ predicted  ▬ reachable', 4, H - 4);
+}
+function drawBank() {
+  const c = bc, W = 200, H = 110; c.setTransform(2, 0, 0, 2, 0, 0); c.clearRect(0, 0, W, H);
+  if (S.mode !== 'entry' || S.alt > 125e3) return;
+  const cx = W / 2, cy = 70, R = 52;
+  c.strokeStyle = 'rgba(255,255,255,.18)'; c.lineWidth = 1.5; c.beginPath(); c.arc(cx, cy, R, Math.PI, 2 * Math.PI); c.stroke();
+  for (const a of [-180, -135, -90, -45, 0, 45, 90, 135, 180]) { const t = (a - 90) * D2R; c.beginPath(); c.moveTo(cx + Math.cos(t) * R, cy + Math.sin(t) * R); c.lineTo(cx + Math.cos(t) * (R - 6), cy + Math.sin(t) * (R - 6)); c.stroke(); }
+  const arrow = (b, col, w) => { const t = (b - 90) * D2R; c.strokeStyle = col; c.lineWidth = w; c.beginPath(); c.moveTo(cx, cy); c.lineTo(cx + Math.cos(t) * (R - 2), cy + Math.sin(t) * (R - 2)); c.stroke(); };
+  arrow(S.bankCmd, 'rgba(255,200,87,.7)', 2); arrow(S.bank, '#e8ecef', 3);
+  c.fillStyle = '#8b97a3'; c.font = '10px JetBrains Mono'; c.textAlign = 'center'; c.fillText(`LIFT ${S.bank >= 0 ? 'R' : 'L'} ${Math.abs(S.bank).toFixed(0)}°`, cx, cy + 16); c.fillText('lift up', cx, cy - R - 6); c.textAlign = 'left';
+}
+const tele = new Readout(document.getElementById('teleB'), [
+  { k: 'mode', label: 'Guidance' }, { k: 'bank', label: 'Bank · command' }, { k: 'fpa', label: 'Flight-path angle' }, { k: 'mach', label: 'Mach · dyn. pressure' },
+  { sec: 'Heating' }, { k: 'qd', label: 'Heat flux (conv + rad)' }, { bar: 'qd' }, { k: 'Q', label: 'Heat load' }, { bar: 'Q' }, { k: 'pq', label: 'Peak flux' },
+  { sec: 'Crew' }, { k: 'g', label: 'Deceleration' }, { bar: 'g', marks: [53, 80] }, { k: 'pg', label: 'Peak g' },
+  { sec: 'Targeting' }, { k: 'rng', label: 'Range to ship' }, { k: 'pred', label: 'Predicted miss' }, { k: 'foot', label: 'Reachable' }, { k: 'chute', label: 'Parachutes' },
+]);
+const chipsEl = document.getElementById('chips'), callEl = document.getElementById('call');
+const bAlt = document.getElementById('bAlt'), bV = document.getElementById('bV'), bG = document.getElementById('bG');
+function updateHUD(dt) {
+  const s = S.scn, up = S.r.clone().normalize(), rel = S.v.clone().sub(V3(-OM * S.r.y, OM * S.r.x, 0)), vr = rel.length();
+  bAlt.textContent = S.alt > 1000 ? (S.alt / 1000).toFixed(1) + ' km' : Math.max(0, S.alt).toFixed(0) + ' m';
+  bV.textContent = vr > 1000 ? (vr / 1000).toFixed(2) + ' km/s' : vr.toFixed(0) + ' m/s';
+  bG.textContent = S.g.toFixed(1); bG.className = S.g > 8 ? 'bad' : S.g > 5 ? 'warn' : '';
+  tele.set('mode', !s.lift ? 'BALLISTIC (spin)' : S.guid ? 'PRED-CORR' : 'Manual', !s.lift ? 'warn' : S.guid ? 'ok' : '');
+  tele.set('bank', `${S.bank.toFixed(0)}° · ${s.lift ? S.bankCmd.toFixed(0) + '°' : '—'}`);
+  tele.set('fpa', `${(Math.asin(THREE.MathUtils.clamp(rel.dot(up) / Math.max(1, vr), -1, 1)) * R2D).toFixed(2)}°`);
+  tele.set('mach', `${S.mach.toFixed(1)} · ${(S.q / 1000).toFixed(1)} kPa`);
+  tele.set('qd', `${(S.qc / 1e6).toFixed(2)} + ${(S.qr / 1e6).toFixed(2)} MW/m²`, S.qdot > 4.5e6 ? 'bad' : S.qdot > 3e6 ? 'warn' : ''); tele.bar('qd', S.qdot / 6e6, S.qdot > 4.5e6 ? 'var(--bad)' : '#ff8a5a');
+  tele.set('Q', `${(S.Q / 1e6).toFixed(0)} / ${(s.Qmax / 1e6).toFixed(0)} MJ/m²`, S.Q > s.Qmax * 0.8 ? 'bad' : ''); tele.bar('Q', S.Q / s.Qmax, S.Q > s.Qmax * 0.8 ? 'var(--bad)' : '#ffb15a');
+  tele.set('pq', `${(S.maxQdot / 1e6).toFixed(2)} MW/m²`);
+  tele.set('g', `${S.g.toFixed(2)} g`, S.g > 8 ? 'bad' : S.g > 5 ? 'warn' : ''); tele.bar('g', S.g / 15, S.g > 8 ? 'var(--bad)' : '');
+  tele.set('pg', `${S.maxG.toFixed(2)} g`);
+  const here = groundU(), d = gcDist(here, S.tgtU);
+  tele.set('rng', `${(d / 1000).toFixed(0)} km`);
+  const pm = S.predP ? gcDist(S.predP, S.tgtU) / 1000 : null;
+  tele.set('pred', S.pred && pm != null && S.mode === 'entry' ? `${pm.toFixed(0)} km` : '—', pm != null && pm < 25 ? 'ok' : pm != null && pm < 150 ? 'warn' : '');
+  tele.set('foot', S.foot && S.foot[0] && S.foot[1] ? `${(gcDist(here, S.foot[1]) / 1000).toFixed(0)}–${(gcDist(here, S.foot[0]) / 1000).toFixed(0)} km` : '—');
+  tele.set('chute', S.mode === 'entry' ? (S.chuteArm ? 'armed (auto)' : 'safe') : S.mode === 'drogue' ? 'drogues' : S.mode === 'main' ? 'mains' : '—', S.mode === 'main' ? 'ok' : '');
+  setChips(chipsEl, [['GUIDANCE', S.guid && s.lift], ['PREDICT', S.pred], ['LOS', S.blackout, 'rd'], [`WARP ${S.warp}×`, S.warp > 1, 'am'], S.paused && ['PAUSED', true, 'am'], S.mode === 'drogue' && ['DROGUES', true, 'gn'], S.mode === 'main' && ['MAINS', true, 'gn']]);
+  callT -= dt; callEl.innerHTML = callT > 0 ? callTxt : '';
+  drawHV(); drawMap(); drawBank();
+}
+
+// ---------- environment ----------
+const toEcef = new THREE.Matrix3(), _c2e = V3(), _sl = new THREE.Color();
+let envBand = -1;
+function updateEnv() {
+  eciToEcef(theta(), toEcef);
+  const up = S.r.clone().normalize(), mu = sunECI.dot(up), h = Math.max(0, S.alt);
+  sunTransmittance(h, mu, _sl); sun.color.copy(_sl); sun.intensity = 3.2;
+  sun.position.copy(sunECI).multiplyScalar(200); sun.target.position.set(0, 0, 0);
+  const sky = Math.max(0, 1 - h / 45000) * THREE.MathUtils.smoothstep(mu, -0.15, 0.2);
+  hemi.color.setRGB(0.45 * sky + 0.01, 0.6 * sky + 0.01, 0.95 * sky + 0.02); hemi.groundColor.setRGB(0.12 + 0.1 * sky, 0.18 + 0.12 * sky, 0.26 + 0.12 * sky); hemi.intensity = 0.4 + 0.5 * sky;
+  const band = h < 15e3 ? 0 : h < 50e3 ? 1 : 2;
+  if (band !== envBand) { envBand = band; if (scene.environment) scene.environment.dispose(); scene.environment = makeEnvironment(renderer, band === 0 ? { top: 0x4a78c0, horizon: 0xb8c8de, bottom: 0x1a3550, sun: V3(0, 1, 0.3), sunPower: 25 } : band === 1 ? { top: 0x0a1630, horizon: 0x7aa0d8, bottom: 0x2a4a78, sun: V3(0, 1, 0.3), sunPower: 35 } : { top: 0x010205, horizon: 0x2a4a78, bottom: 0x3f6ea8, sun: V3(0, 1, 0.3), sunPower: 45 }); }
+  scene.environmentIntensity = 0.3 + 0.5 * THREE.MathUtils.smoothstep(mu, -0.2, 0.2);
+}
+
+// ---------- main loop ----------
+function resize() { renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); stars.material.uniforms.uDpr.value = renderer.getPixelRatio(); }
+addEventListener('resize', resize); resize();
+let last = performance.now(), hudT = 0, trailT = 0;
+const _cq = new THREE.Quaternion(), _ax = V3(), _rel3 = V3();
+function frame(now) {
+  const dtR = Math.min(0.1, (now - last) / 1000); last = now;
+  if (!S.paused) {
+    if (S.blackout !== frame.bo || S.mode !== 'entry' || S.alt < 15e3 || S.result) S.warp = Math.min(S.warp, S.mode === 'entry' && S.alt > 15e3 && !S.result ? S.warp : 1);
+    frame.bo = S.blackout;
+    const simDt = dtR * S.warp, n = Math.max(1, Math.ceil(simDt / 0.05)), h = simDt / n;
+    for (let i = 0; i < n; i++) { step(h); if (S.result && !S.result.ok) break; }
+    guidanceT += simDt; if (guidanceT > 1) { guidanceT = 0; guidance(); }
+    predT += simDt; if (predT > 0.5 && S.pred && S.mode === 'entry' && !S.result) { predT = 0; S.predPath = []; const p = predict(S.scn.lift ? S.bank : 0, 2, S.predPath); S.predP = p.u; }
+    footT += simDt; if (footT > 2 && S.pred && S.mode === 'entry' && S.scn.lift && !S.result) { footT = 0; S.foot = [predict(0, 3).u, predict(180, 3).u]; }
+    trailT += simDt; if (trailT > 2) { trailT = 0; S.trail.push(groundU().clone()); const rv = S.v.clone().sub(V3(-OM * S.r.y, OM * S.r.x, 0)).length(); if (S.alt < 126e3) S.hv.push([rv, S.alt]); }
+    // splash foam / bobbing
+    if (S.mode === 'splash') for (let i = 0; i < FOAM; i++) { fmVel[i * 3 + 1] -= 9.8 * simDt; fmPos[i * 3] += fmVel[i * 3] * simDt; fmPos[i * 3 + 1] = Math.max(0, fmPos[i * 3 + 1] + fmVel[i * 3 + 1] * simDt); fmPos[i * 3 + 2] += fmVel[i * 3 + 2] * simDt; }
+    fmGeo.attributes.position.needsUpdate = true;
+  }
+  // capsule attitude: apex axis along the aerodynamic resultant (drag + lift), rotated about the flow by the bank angle
+  const up = S.r.clone().normalize(), rel = _rel3.copy(S.v).sub(V3(-OM * S.r.y, OM * S.r.x, 0)), vr = rel.length(); rel.divideScalar(Math.max(vr, 1e-6));
+  if (S.mode === 'entry' && vr > 50) {
+    const l0 = up.clone().addScaledVector(rel, -up.dot(rel)).normalize(), side = rel.clone().cross(l0);
+    const ld = l0.multiplyScalar(Math.cos(S.bank * D2R)).addScaledVector(side, Math.sin(S.bank * D2R));
+    const axis = rel.clone().negate().addScaledVector(ld, CAP.LD).normalize(), xb = ld.clone().cross(axis).normalize();
+    cap.g.quaternion.setFromRotationMatrix(_m4.makeBasis(xb, axis, xb.clone().cross(axis)));
+  } else {
+    const sw = S.mode === 'splash' ? 0.06 * Math.sin(now / 900) : 0.04 * Math.sin(now / 1300);
+    const east = V3(-up.y, up.x, 0).normalize(), north = up.clone().cross(east);
+    _cq.setFromRotationMatrix(_m4.makeBasis(east, up, north.clone().negate())).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(sw, 0, sw * 0.7)));
+    cap.g.quaternion.slerp(_cq, Math.min(1, dtR * 2));
+  }
+  cap.g.position.set(0, S.mode === 'splash' ? -0.9 + 0.25 * Math.sin(now / 700) : 0, 0).applyQuaternion(S.mode === 'splash' ? new THREE.Quaternion() : new THREE.Quaternion());
+  if (S.mode === 'splash') cap.g.position.copy(up).multiplyScalar(-0.9 + 0.25 * Math.sin(now / 700));
+  // plasma: intensity from heat flux, colour from pink-orange (air plasma) to white-hot
+  const I = THREE.MathUtils.clamp(S.qdot / 2.2e6, 0, 1.6), tt = now / 1000;
+  plasma.sheath.visible = plasma.wake.visible = I > 0.02 && S.mode === 'entry';
+  plasma.sheath.material.uniforms.uI.value = I * 0.8; plasma.sheath.material.uniforms.uT.value = tt;
+  plasma.wake.material.uniforms.uI.value = I * 0.5; plasma.wake.material.uniforms.uT.value = tt;
+  const hot = THREE.MathUtils.clamp(I / 1.2, 0, 1); plasma.sheath.material.uniforms.uC.value.setRGB(1, 0.35 + 0.35 * hot, 0.25 + 0.3 * hot); plasma.wake.material.uniforms.uC.value.copy(plasma.sheath.material.uniforms.uC.value);
+  plasma.wake.position.set(0, 0, 0); plasma.wake.quaternion.setFromUnitVectors(V3(0, 1, 0), rel.clone().negate()); plasma.wake.scale.set(1 + I * 0.4, 30 + 140 * I, 1 + I * 0.4);
+  plasmaLight.intensity = 400 * I; plasmaLight.position.copy(rel).multiplyScalar(4);
+  cap.M.shield.emissive.setRGB(0.9 * hot, 0.25 * hot, 0.05 * hot);
+  // sparks streaming off the shoulder
+  if (I > 0.3 && !S.paused) for (let k = 0; k < Math.floor(I * 8); k++) { const j = spHead = (spHead + 1) % SPK, a = Math.random() * 6.283; const p = V3(Math.cos(a) * 2.5, 0, Math.sin(a) * 2.5).applyQuaternion(cap.g.quaternion); spPos.set([p.x, p.y, p.z], j * 3); const sv = rel.clone().multiplyScalar(-(40 + Math.random() * 60)).add(p.multiplyScalar(2)); spVel.set([sv.x, sv.y, sv.z], j * 3); spAge[j] = 0; }
+  for (let j = 0; j < SPK; j++) { if (spAge[j] > 1.5) { spPos[j * 3 + 1] = 1e9; continue; } spAge[j] += dtR; spPos[j * 3] += spVel[j * 3] * dtR; spPos[j * 3 + 1] += spVel[j * 3 + 1] * dtR; spPos[j * 3 + 2] += spVel[j * 3 + 2] * dtR; }
+  spGeo.attributes.position.needsUpdate = true;
+  // parachutes
+  if (S.mode === 'drogue' || S.mode === 'main' || S.mode === 'splash') {
+    const east = V3(-up.y, up.x, 0).normalize(), north = up.clone().cross(east), base = new THREE.Quaternion().setFromRotationMatrix(_m4.makeBasis(east, up, north.clone().negate()));
+    drogues.forEach((c, i) => { c.position.copy(up).multiplyScalar(2.8); c.quaternion.copy(base).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, (i ? 1 : -1) * 0.22))); });
+    const open = S.mode === 'main' ? Math.min(1, (S.t - S.mainT) / 6) : 1;
+    mains.forEach((c, i) => { c.position.copy(up).multiplyScalar(2.8); const a = i / 3 * 6.283; c.quaternion.copy(base).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.sin(a) * 0.32, 0, Math.cos(a) * 0.32))); c.scale.set(0.25 + 0.75 * open, 1, 0.25 + 0.75 * open); if (S.mode === 'splash') { c.visible = false; } });
+  }
+  ship.position.copy(shipPos()); { const tU = S.tgtU, east = V3(-tU.y, tU.x, 0).normalize(), north = tU.clone().cross(east), th = theta(); ship.quaternion.setFromRotationMatrix(_m4.makeBasis(ecefToEci(th, east), ecefToEci(th, tU), ecefToEci(th, north).negate())); }
+  ship.visible = ship.position.length() < 40000;
+  foam.position.copy(up).multiplyScalar(-1.2); foam.quaternion.copy(cap.g.quaternion);
+  updateEnv(); updateCamera(dtR);
+  const east = V3(-up.y, up.x, 0).normalize(), north = up.clone().cross(east);
+  earth.update(camera, _c2e.copy(S.r).negate().sub(camera.position), toEcef, sunECI, { east, north, localEN: new THREE.Vector2(0, 0), time: S.t });
+  stars.position.copy(camera.position); glare.position.copy(camera.position).addScaledVector(sunECI, 3e7);
+  hudT += dtR; if (hudT > 0.1) { updateHUD(hudT); hudT = 0; }
+  renderer.render(scene, camera);
+  adaptive.tick(dtR); fps.tick(dtR, renderer);
+  requestAnimationFrame(frame);
+}
+
+(async () => {
+  loadingStep('Loading NASA Blue Marble & Black Marble…', 0.15);
+  const [day, night] = await Promise.all([loadTexture('../shared/nasa/earth_day_4k.jpg'), loadTexture('../shared/nasa/earth_night_2k.jpg')]);
+  loadingStep('Baking clouds and atmosphere…', 0.5);
+  await new Promise(r => setTimeout(r, 20));
+  earth = new EarthView(renderer, { dayMap: day, nightMap: night, samples: preset().samples, detail: 1 });
+  onSettings(() => earth.setSamples(preset().samples));
+  scene.add(earth.mesh);
+  await mergeStatic(cap.g, { keep: o => o.material === cap.M.shield || o === plasma.sheath });
+  loadScenario(0);
+  loadingStep('Ready', 1); loadingDone(); camHint();
+  requestAnimationFrame(t => { last = t; frame(t); });
+})();
+window.__entry = { S, loadScenario, step, predict, guidance, setCam };
+</script>
+</body>
+</html>

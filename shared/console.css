@@ -13,7 +13,7 @@ html,body{height:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 Inter,system-ui,-apple-system,"Segoe UI",sans-serif;overflow-x:clip;-webkit-font-smoothing:antialiased}
 button,input{font:inherit;color:inherit}
 .app{display:grid;grid-template-rows:auto auto auto;min-height:100%}
-header{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;padding:10px max(16px,1.2vw);border-bottom:1px solid var(--line);background:var(--p1);position:sticky;top:0;z-index:20}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;padding:10px max(16px,1.2vw);border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--p1) 88%,transparent);-webkit-backdrop-filter:saturate(140%) blur(10px);backdrop-filter:saturate(140%) blur(10px);position:sticky;top:0;z-index:20}
 .brand{display:flex;align-items:baseline;gap:10px}
 .brand h1{font:700 22px/1 "Inter Tight",Inter,sans-serif;letter-spacing:-.02em;margin:0}
 .brand span{color:var(--mute);font-size:13px}
@@ -143,7 +143,38 @@ details.help .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(260
 details.help p{margin:6px 0;max-width:66ch}
 details.help b{color:var(--ink);font-weight:600}
 @media(max-width:1280px){.main{grid-template-columns:280px minmax(0,1fr)}.col.r{grid-column:1/3;border-left:0;border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:0 28px}.col.r>h2{grid-column:1/-1}.bottom{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
-.x{}@media(max-width:1100px){.kpis{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(max-width:1100px){.kpis{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media(max-width:860px){.main{grid-template-columns:minmax(0,1fr)}.center{order:-1}.col.l{border-right:0;border-top:1px solid var(--line)}.col.r{grid-column:auto}.bottom{grid-template-columns:minmax(0,1fr)}#xsFig{aspect-ratio:1.3}.panel{border-right:0;border-top:1px solid var(--line)}.fig{min-height:300px}.simctl{margin-left:0}header{position:static}.alarm{flex-basis:100%;order:9}}
 @media(max-width:520px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}#xsFig{aspect-ratio:1.05}}
 @media(prefers-reduced-motion:reduce){.tg::after{transition:none}}
+
+/* ---- polish shared by every console (2026-11) ---- */
+html{scrollbar-color:#2e3740 transparent;scrollbar-width:thin}
+::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-thumb{background:#2e3740;border-radius:6px;border:2px solid var(--bg)}::-webkit-scrollbar-track{background:transparent}
+::selection{background:color-mix(in srgb,var(--ice) 35%,transparent)}
+.brand{flex-wrap:wrap}
+.brand h1{display:flex;align-items:center;gap:8px}
+select{-webkit-appearance:none;appearance:none;padding-right:28px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238b97a3' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;cursor:pointer;transition:border-color .15s}
+select:hover{border-color:var(--dim)}
+select option{background:var(--p2);color:var(--ink)}
+.btn,.seg button{transition:background .15s,border-color .15s,color .15s}
+.btn:active{transform:translateY(1px)}
+.seg button:hover{color:var(--ink)}
+.col{background:linear-gradient(var(--p1),var(--p1)) padding-box}
+.col h2,.panel h2{display:flex;align-items:center;gap:8px}
+.col > h2::before{content:"";width:6px;height:6px;border-radius:2px;background:var(--dim)}
+input[type=range]::-webkit-slider-thumb{transition:transform .12s}
+input[type=range]:hover::-webkit-slider-thumb,input[type=range]:active::-webkit-slider-thumb{transform:scale(1.18)}
+.kpi{transition:background .2s}
+.kpi:hover{background:color-mix(in srgb,var(--p2) 70%,var(--p1))}
+.kpi .v{font-variant-numeric:tabular-nums}
+.row .rd,.ctl .val,.flow .rd{font-variant-numeric:tabular-nums}
+.toast{box-shadow:0 10px 30px rgba(0,0,0,.4);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+.summary{box-shadow:0 14px 40px rgba(0,0,0,.45)}
+.fig>canvas{outline:none}
+details.help summary{list-style:none;gap:8px}
+details.help summary::-webkit-details-marker{display:none}
+details.help summary::before{content:"+";display:inline-grid;place-items:center;width:20px;height:20px;border-radius:5px;border:1px solid var(--line2);color:var(--mute);font:500 14px var(--mono);transition:transform .2s}
+details.help[open] summary::before{content:"–"}
+.phase{transition:color .2s,border-color .2s}
+@media(prefers-reduced-motion:reduce){.btn,.seg button,select,.kpi,input[type=range]::-webkit-slider-thumb{transition:none}}
